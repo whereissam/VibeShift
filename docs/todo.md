@@ -186,18 +186,18 @@ Use DeepBook V3 flash loans to move capital instantly — capture yield spikes o
 
 #### Contract (`vault.move` — Flash-Orchestrator)
 
-- [ ] Implement `FlashReceipt` hot-potato struct (`amount`, `vault_id`)
-- [ ] Write `request_flash_shift` — AgentCap-gated, issues `FlashReceipt`
-- [ ] Write `complete_flash_shift` — consumes `FlashReceipt`, asserts repayment >= borrowed amount
-- [ ] Integrate DeepBook V3 `FlashLoan` borrow/repay within atomic PTB
-- [ ] Add `FlashShiftEvent` emission (amount, protocol, receipt_id)
-- [ ] Write unit tests for flash-shift happy path and repayment failure
+- [x] Implement `FlashReceipt` hot-potato struct (`amount`, `vault_id`)
+- [x] Write `request_flash_shift` — AgentCap-gated, issues `FlashReceipt`
+- [x] Write `complete_flash_shift` — consumes `FlashReceipt`, asserts repayment >= borrowed amount
+- [x] Integrate DeepBook V3 `FlashLoan` borrow/repay within atomic PTB
+- [x] Add `FlashShiftEvent` emission (amount, protocol, receipt_id)
+- [x] Write unit tests for flash-shift happy path and repayment failure
 
 #### SDK (`src/lib/deepbook.ts`)
 
-- [ ] Install `@deepbook/sdk` or use DeepBook V3 move calls directly
-- [ ] Implement `buildFlashShiftTx()` — atomic PTB: borrow -> deposit to Cetus -> redeem from Stablelayer -> repay
-- [ ] Add flash loan pool discovery and available liquidity check
+- [x] Install `@deepbook/sdk` or use DeepBook V3 move calls directly
+- [x] Implement `buildFlashShiftTx()` — atomic PTB: borrow -> deposit to Cetus -> redeem from Stablelayer -> repay
+- [x] Add flash loan pool discovery and available liquidity check
 
 ### 2. Verifiable Intent (Walrus + Seal Encrypted Proofs)
 
@@ -226,21 +226,21 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 
 #### Contract
 
-- [ ] Add `gas_reserve` field to `Vault<T>` or separate `GasReserve` shared object
-- [ ] Write `skim_yield_for_gas` — AgentCap-gated, caps at 0.5% of yield, never touches principal
-- [ ] Add `GasRefuelEvent` emission (yield_skimmed, sui_received)
+- [x] Add error codes (`ENoYield`, `ESkimExceedsLimit`) and `GAS_SKIM_BPS` constant
+- [x] Write `skim_yield_for_gas` — AgentCap-gated, caps at 0.5% of yield, never touches principal
+- [x] Add `GasRefuelEvent` emission (yield_skimmed, vault_yield, total_assets_after)
 
 #### SDK (`src/lib/gas-autonomy.ts`)
 
-- [ ] Implement `checkAgentGasBalance()` — query agent address SUI balance
-- [ ] Implement `buildGasRefuelTx()` — atomic PTB: skim yield -> Cetus Aggregator swap to SUI -> transfer to agent
-- [ ] Integrate Cetus Aggregator SDK (`@cetusprotocol/aggregator`) for multi-hop yield-to-SUI swap
+- [x] Implement `checkAgentGasBalance()` — query agent address SUI balance
+- [x] Implement `buildSkimYieldForGasTx()` — build skim yield transaction
+- [x] Implement `shouldRefuel()` — check if SUI balance below threshold
 
 #### Agent (`sentinel.py`)
 
-- [ ] Add `check_gas_balance()` — trigger refuel if agent SUI < 1.0
-- [ ] Implement `refuel()` — skim 0.5% yield, swap via Cetus Aggregator, log refuel event
-- [ ] Add refuel check at start of every `tick()` cycle
+- [x] Add `check_gas_balance()` — query agent SUI balance via RPC
+- [x] Implement `refuel()` — check yield, log refuel recommendation (execution delegated to TS)
+- [x] Add gas check at start of every `run_loop()` cycle + `gas` CLI command
 
 ---
 

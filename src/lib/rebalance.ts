@@ -16,6 +16,8 @@ import {
 import { encryptAndUploadProof, type ProofPlaintext } from "./walrus-seal";
 import { buildStoreEncryptedProofTx } from "./vault";
 import { getVaultState } from "./vault";
+import { shouldRefuel, buildSkimYieldForGasTx } from "./gas-autonomy";
+import { GAS_SKIM_BPS } from "./constants";
 import { getPoolStats } from "./cetus";
 import { getTotalSupply } from "./stablelayer";
 
@@ -35,6 +37,7 @@ export interface RebalanceResult {
   walrusBlobId?: string;
   encrypted?: boolean;
   sealPolicyId?: string;
+  gasRefueled?: boolean;
 }
 
 export class RebalanceEngine {
@@ -56,6 +59,60 @@ export class RebalanceEngine {
     this.vaultId = vaultId;
     this.coinType = coinType;
     this.sealSecret = sealSecret;
+  }
+
+  /**
+   * Check agent gas balance and skim yield if needed.
+   */
+  private async checkAndRefuel(): Promise<{
+    refueled: boolean;
+    amount?: bigint;
+  }> {
+    try {
+      const { needed, balance } = await shouldRefuel(
+        this.signer.toSuiAddress(),
+      );
+      if (!needed) return { refueled: false };
+
+      console.log(
+        `[VibeShift] Gas low: ${balance} MIST. Attempting refuel...`,
+      );
+
+      const vaultState = await getVaultState(this.vaultId);
+      if (!vaultState) return { refueled: false };
+
+      const totalAssets = BigInt(vaultState.balance);
+      const lpSupply = BigInt(vaultState.lpSupply);
+      const yieldAmount =
+        totalAssets > lpSupply ? totalAssets - lpSupply : 0n;
+
+      if (yieldAmount === 0n) {
+        console.log("[VibeShift] No yield available for gas skim");
+        return { refueled: false };
+      }
+
+      const maxSkim =
+        (yieldAmount * BigInt(GAS_SKIM_BPS)) / 10000n;
+      if (maxSkim === 0n) return { refueled: false };
+
+      const skimTx = buildSkimYieldForGasTx(
+        this.vaultId,
+        this.coinType,
+        maxSkim,
+      );
+      const result = await this.client.signAndExecuteTransaction({
+        transaction: skimTx,
+        signer: this.signer,
+      });
+
+      console.log(
+        `[VibeShift] Gas refueled: skimmed ${maxSkim} from yield. tx=${result.digest}`,
+      );
+      return { refueled: true, amount: maxSkim };
+    } catch (e) {
+      console.warn("[VibeShift] Gas refuel failed:", e);
+      return { refueled: false };
+    }
   }
 
   /**
@@ -327,6 +384,9 @@ export class RebalanceEngine {
    * Run one analysis + execute cycle. Returns null if no rebalance needed.
    */
   async tick(): Promise<RebalanceResult | null> {
+    // Check gas before doing anything
+    const refuel = await this.checkAndRefuel();
+
     const decision = await this.analyze();
     if (!decision.shouldRebalance) {
       console.log(`[VibeShift] Hold: ${decision.reason}`);
@@ -335,6 +395,7 @@ export class RebalanceEngine {
 
     console.log(`[VibeShift] Rebalancing: ${decision.reason}`);
     const result = await this.execute(decision);
+    result.gasRefueled = refuel.refueled;
     console.log(`[VibeShift] Done: tx=${result.txDigest}`);
     return result;
   }

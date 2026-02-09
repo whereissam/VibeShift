@@ -47,5 +47,9 @@ export const MAX_SHIFT_PCT = 40; // Max 40% of TVL per rebalance
 export const YIELD_THRESHOLD_BPS = 200; // 2% differential to trigger rebalance
 export const REBALANCE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
+// Gas autonomy
+export const GAS_SKIM_BPS = 50; // 0.5% of yield — matches Move contract
+export const GAS_MIN_SUI_BALANCE = 500_000_000n; // 0.5 SUI (9 decimals)
+
 // Walrus Seal encryption
 export const SEAL_ENCRYPTION_VERSION = 1;

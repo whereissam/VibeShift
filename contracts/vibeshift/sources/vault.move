@@ -14,6 +14,14 @@ const EZeroAmount: u64 = 1;
 const EVaultEmpty: u64 = 2;
 const EExceedsBalance: u64 = 3;
 const EEmptyBlobId: u64 = 4;
+const ENoYield: u64 = 5;
+const ESkimExceedsLimit: u64 = 6;
+const EFlashLoanNotRepaid: u64 = 7;
+const EFlashVaultMismatch: u64 = 8;
+
+// ===== Constants =====
+
+const GAS_SKIM_BPS: u64 = 50; // 0.5% of yield
 
 // ===== Events =====
 
@@ -69,6 +77,23 @@ public struct EncryptedProofStored has copy, drop {
     encryption_version: u8,
 }
 
+public struct GasRefuelEvent has copy, drop {
+    vault_id: ID,
+    agent: address,
+    yield_skimmed: u64,
+    vault_yield: u64,
+    total_assets_after: u64,
+}
+
+public struct FlashShiftEvent has copy, drop {
+    vault_id: ID,
+    agent: address,
+    amount: u64,
+    repaid: u64,
+    protocol: vector<u8>,
+    total_assets_after: u64,
+}
+
 // ===== Objects =====
 
 /// The main Vault object (Shared Object).
@@ -83,6 +108,13 @@ public struct Vault<phantom T> has key {
 /// Only the holder of this cap can move funds out of the vault.
 public struct AgentCap has key, store {
     id: UID,
+}
+
+/// Flash loan receipt — no abilities (hot-potato).
+/// Must be consumed by `complete_flash_shift` in the same transaction.
+public struct FlashReceipt {
+    vault_id: ID,
+    amount: u64,
 }
 
 /// Admin capability for vault management (creating vaults, etc.)
@@ -278,6 +310,87 @@ public fun store_encrypted_proof(
     });
 }
 
+/// Skim a fraction of vault yield for agent gas. Capped at 0.5% of
+/// yield (assets - lp_supply). Never touches depositor principal.
+public fun skim_yield_for_gas<T>(
+    _: &AgentCap,
+    vault: &mut Vault<T>,
+    amount: u64,
+    ctx: &mut TxContext,
+) {
+    assert!(amount > 0, EZeroAmount);
+    let total_assets = balance::value(&vault.assets);
+    let yield_amount = if (total_assets > vault.lp_supply) {
+        total_assets - vault.lp_supply
+    } else {
+        0
+    };
+    assert!(yield_amount > 0, ENoYield);
+    let max_skim = (yield_amount * GAS_SKIM_BPS) / 10000;
+    assert!(amount <= max_skim, ESkimExceedsLimit);
+
+    let skimmed = balance::split(&mut vault.assets, amount);
+    let coin_out = coin::from_balance(skimmed, ctx);
+    transfer::public_transfer(coin_out, ctx.sender());
+
+    event::emit(GasRefuelEvent {
+        vault_id: object::id(vault),
+        agent: ctx.sender(),
+        yield_skimmed: amount,
+        vault_yield: yield_amount,
+        total_assets_after: balance::value(&vault.assets),
+    });
+}
+
+/// Borrow funds from the vault for an atomic flash-shift operation.
+/// Returns a coin and a hot-potato FlashReceipt that must be consumed
+/// by `complete_flash_shift` within the same transaction.
+public fun request_flash_shift<T>(
+    _: &AgentCap,
+    vault: &mut Vault<T>,
+    amount: u64,
+    ctx: &mut TxContext,
+): (Coin<T>, FlashReceipt) {
+    assert!(amount > 0, EZeroAmount);
+    let vault_balance = balance::value(&vault.assets);
+    assert!(amount <= vault_balance, EExceedsBalance);
+
+    let borrowed = balance::split(&mut vault.assets, amount);
+    let coin_out = coin::from_balance(borrowed, ctx);
+    let receipt = FlashReceipt {
+        vault_id: object::id(vault),
+        amount,
+    };
+    (coin_out, receipt)
+}
+
+/// Repay a flash-shift loan. Consumes the hot-potato FlashReceipt.
+/// The repayment coin must have value >= the borrowed amount.
+public fun complete_flash_shift<T>(
+    vault: &mut Vault<T>,
+    payment: Coin<T>,
+    receipt: FlashReceipt,
+    protocol: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    let FlashReceipt { vault_id, amount } = receipt;
+    assert!(vault_id == object::id(vault), EFlashVaultMismatch);
+    assert!(coin::value(&payment) >= amount, EFlashLoanNotRepaid);
+
+    let repaid = coin::value(&payment);
+    let coin_balance = coin::into_balance(payment);
+    balance::join(&mut vault.assets, coin_balance);
+
+    event::emit(FlashShiftEvent {
+        vault_id,
+        agent: ctx.sender(),
+        amount,
+        repaid,
+        protocol,
+        total_assets_after: balance::value(&vault.assets),
+    });
+}
+
 // ===== View Functions =====
 
 /// Get total assets held in the vault.
@@ -288,6 +401,12 @@ public fun vault_balance<T>(vault: &Vault<T>): u64 {
 /// Get total LP supply for the vault.
 public fun vault_lp_supply<T>(vault: &Vault<T>): u64 {
     vault.lp_supply
+}
+
+/// Get yield amount (assets exceeding LP supply).
+public fun vault_yield<T>(vault: &Vault<T>): u64 {
+    let total_assets = balance::value(&vault.assets);
+    if (total_assets > vault.lp_supply) { total_assets - vault.lp_supply } else { 0 }
 }
 
 /// Transfer the AgentCap to a new agent address.

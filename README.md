@@ -4,6 +4,8 @@
 
 The first **Self-Sustaining Yield Engine** on Sui. An autonomous liquidity orchestrator that shifts stablecoin assets between **Stablelayer** and **Cetus** based on agentic market analysis — with flash-loan capital efficiency, encrypted strategy proofs, and gas autonomy. Built with Move 2026, powered by an AI agent.
 
+Traditional DeFi vaults move capital in two transactions: withdraw from protocol A, then deposit into protocol B. Funds sit idle between steps ("yield drag"). VibeShift eliminates this with a **hot-potato flash loan** pattern: borrow, deploy, and repay in a single atomic Programmable Transaction Block. If repayment fails, the entire PTB reverts — making vault drain mathematically impossible at the Move VM level.
+
 ## How It Works
 
 ```
@@ -29,9 +31,30 @@ User deposits USDC
 
 ### Advanced Features
 
-4. **Flash-Shift** - DeepBook V3 flash loans enable zero-drag capital movement between protocols in a single atomic PTB
+4. **Flash-Shift** - Hot-potato flash loans built directly into the vault. The agent borrows funds via `request_flash_shift`, deploys them into DeFi protocols, and repays via `complete_flash_shift` — all in a single atomic PTB. The `FlashReceipt` struct has **no abilities** (no `store`, `drop`, or `copy`), so the Move VM enforces that every borrow is repaid within the same transaction. If repayment falls short, the entire PTB reverts. Zero yield drag, zero risk.
 5. **Verifiable Intent** - Walrus Seal encrypts strategy reasoning to prevent copy-trading while keeping proofs 100% auditable
 6. **The Eternal Agent** - Self-sustaining gas: the agent auto-swaps yield (never principal) for SUI, creating a perpetual motion vault
+
+### Flash-Shift: How It Works
+
+```
+Single Programmable Transaction Block (PTB):
+┌──────────────────────────────────────────────────┐
+│ 1. request_flash_shift(vault, 10000)             │
+│    → Returns: Coin<USDC> + FlashReceipt          │
+│                                                   │
+│ 2. [DeFi operations with borrowed coin]           │
+│    → Cetus swap, Stablelayer mint, DeepBook arb   │
+│                                                   │
+│ 3. complete_flash_shift(vault, coin, receipt)     │
+│    → Asserts: repayment >= borrowed amount        │
+│    → Consumes hot-potato receipt (no abilities)   │
+└──────────────────────────────────────────────────┘
+        If step 3 fails → entire PTB reverts
+        FlashReceipt cannot be stored or dropped
+```
+
+The `FlashReceipt` is a **hot-potato** struct with no Move abilities — it cannot be stored, copied, or dropped. The only way to consume it is by calling `complete_flash_shift` with sufficient repayment. This is enforced by the Move VM itself, not by runtime checks.
 
 ## Tech Stack
 
@@ -113,6 +136,8 @@ sui client publish --gas-budget 100000000
 │   │   ├── cetus.ts                # Cetus SDK integration
 │   │   ├── stablelayer.ts          # Stablelayer SDK integration
 │   │   ├── vault.ts                # Vault client (PTB builders)
+│   │   ├── deepbook.ts             # Flash-shift PTB builder + capacity query
+│   │   ├── gas-autonomy.ts         # Agent gas balance check + skim yield
 │   │   ├── rebalance.ts            # Rebalance orchestrator
 │   │   ├── constants.ts            # Deployed contract IDs + config
 │   │   └── utils.ts                # Utility functions

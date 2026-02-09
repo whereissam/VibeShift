@@ -46,6 +46,10 @@ SEAL_SECRET = os.getenv("VIBESHIFT_SEAL_SECRET", "")
 HKDF_INFO = b"vibeshift-seal-v1"
 ENCRYPTION_VERSION = 1
 
+# Gas autonomy
+GAS_MIN_SUI_BALANCE = int(os.getenv("GAS_MIN_SUI_BALANCE", "500000000"))  # 0.5 SUI
+AGENT_ADDRESS = os.getenv("VIBESHIFT_AGENT_ADDRESS", "")
+
 # Strategy
 YIELD_THRESHOLD_BPS = int(os.getenv("YIELD_THRESHOLD_BPS", "200"))
 MAX_SHIFT_PCT = int(os.getenv("MAX_SHIFT_PCT", "40"))
@@ -312,6 +316,47 @@ def upload_walrus_proof(action: ShiftAction) -> Optional[str]:
     return None
 
 
+# ===== Gas Autonomy =====
+
+
+def check_gas_balance() -> int:
+    """Check the agent's SUI gas balance. Returns balance in MIST."""
+    if not AGENT_ADDRESS:
+        log.warning("VIBESHIFT_AGENT_ADDRESS not set — cannot check gas")
+        return 0
+    result = sui_rpc("suix_getBalance", [AGENT_ADDRESS, "0x2::sui::SUI"])
+    return int(result.get("totalBalance", 0))
+
+
+def refuel():
+    """Check gas balance, calculate vault yield, and log refuel recommendation."""
+    balance = check_gas_balance()
+    balance_sui = balance / 1_000_000_000
+    log.info("Agent gas balance: %.4f SUI (%d MIST)", balance_sui, balance)
+
+    if balance >= GAS_MIN_SUI_BALANCE:
+        log.info("Gas sufficient — no refuel needed")
+        return
+
+    vault = get_vault_state()
+    if not vault:
+        log.warning("Cannot check vault yield for refuel — vault not found")
+        return
+
+    yield_amount = max(0, vault.balance - vault.lp_supply)
+    max_skim = (yield_amount * 50) // 10000  # 0.5% of yield
+
+    log.info(
+        "REFUEL NEEDED: agent balance %.4f SUI, vault yield %d, max skim %d",
+        balance_sui,
+        yield_amount,
+        max_skim,
+    )
+    log.info(
+        "Transaction execution delegated to TypeScript RebalanceEngine"
+    )
+
+
 # ===== Main Loop =====
 
 
@@ -380,6 +425,12 @@ def run_loop(interval_seconds: int = 600):
     last_rebalance = 0
 
     while True:
+        # Check agent gas balance
+        gas_balance = check_gas_balance()
+        if gas_balance < GAS_MIN_SUI_BALANCE:
+            gas_sui = gas_balance / 1_000_000_000
+            log.warning("LOW GAS: %.4f SUI — refuel recommended", gas_sui)
+
         now = time.time()
         if now - last_rebalance < COOLDOWN_SECONDS:
             remaining = int(COOLDOWN_SECONDS - (now - last_rebalance))
@@ -408,6 +459,17 @@ if __name__ == "__main__":
     elif cmd == "loop":
         interval = int(sys.argv[2]) if len(sys.argv) > 2 else 600
         run_loop(interval)
+    elif cmd == "gas":
+        balance = check_gas_balance()
+        balance_sui = balance / 1_000_000_000
+        print(f"Agent Address:  {AGENT_ADDRESS or '(not set)'}")
+        print(f"SUI Balance:    {balance_sui:.4f} SUI ({balance} MIST)")
+        print(f"Min Threshold:  {GAS_MIN_SUI_BALANCE / 1_000_000_000:.4f} SUI")
+        if balance < GAS_MIN_SUI_BALANCE:
+            print("Status:         REFUEL NEEDED")
+            refuel()
+        else:
+            print("Status:         OK")
     elif cmd == "decrypt":
         if len(sys.argv) < 3:
             print("Usage: python sentinel.py decrypt <blob_id> [vault_id]")
@@ -427,4 +489,4 @@ if __name__ == "__main__":
         decrypted = decrypt_strategy_blob(payload, SEAL_SECRET, vault_id)
         print(json.dumps(decrypted, indent=2))
     else:
-        print("Usage: python sentinel.py [status|once|loop [interval_secs]|decrypt <blob_id> [vault_id]]")
+        print("Usage: python sentinel.py [status|once|loop [interval_secs]|gas|decrypt <blob_id> [vault_id]]")

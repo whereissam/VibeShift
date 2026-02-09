@@ -414,6 +414,117 @@ fun test_store_encrypted_proof() {
     ts::end(scenario);
 }
 
+#[test]
+fun test_skim_yield_for_gas() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+    create_test_vault(&mut scenario);
+
+    // Deposit 1000
+    ts::next_tx(&mut scenario, USER1);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 1000);
+        vault::deposit(&mut vault, coin, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    // Simulate yield: receive_from_protocol adds 200 (yield = 200)
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 200);
+        vault::receive_from_protocol(&mut vault, coin);
+        assert!(vault::vault_balance(&vault) == 1200);
+        assert!(vault::vault_yield(&vault) == 200);
+        ts::return_shared(vault);
+    };
+
+    // Skim 1 (max = 200 * 50 / 10000 = 1)
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+
+        vault::skim_yield_for_gas(&agent_cap, &mut vault, 1, ts::ctx(&mut scenario));
+
+        assert!(vault::vault_balance(&vault) == 1199);
+        ts::return_shared(vault);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = vault::ENoYield)]
+fun test_skim_yield_no_yield_fails() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+    create_test_vault(&mut scenario);
+
+    // Deposit 1000 (assets == lp_supply, no yield)
+    ts::next_tx(&mut scenario, USER1);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 1000);
+        vault::deposit(&mut vault, coin, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    // Try to skim — should fail with ENoYield
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+
+        vault::skim_yield_for_gas(&agent_cap, &mut vault, 1, ts::ctx(&mut scenario));
+
+        ts::return_shared(vault);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = vault::ESkimExceedsLimit)]
+fun test_skim_yield_exceeds_limit_fails() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+    create_test_vault(&mut scenario);
+
+    // Deposit 1000
+    ts::next_tx(&mut scenario, USER1);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 1000);
+        vault::deposit(&mut vault, coin, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    // Simulate yield: 200
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 200);
+        vault::receive_from_protocol(&mut vault, coin);
+        ts::return_shared(vault);
+    };
+
+    // Try to skim 2 (max = 200 * 50 / 10000 = 1) — should fail
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+
+        vault::skim_yield_for_gas(&agent_cap, &mut vault, 2, ts::ctx(&mut scenario));
+
+        ts::return_shared(vault);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
 #[test, expected_failure(abort_code = vault::EEmptyBlobId)]
 fun test_store_encrypted_proof_empty_blob_fails() {
     let mut scenario = ts::begin(ADMIN);
@@ -435,6 +546,107 @@ fun test_store_encrypted_proof_empty_blob_fails() {
         );
 
         sui::clock::destroy_for_testing(clock);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
+#[test]
+fun test_flash_shift_happy_path() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+    create_test_vault(&mut scenario);
+
+    // Deposit 1000
+    ts::next_tx(&mut scenario, USER1);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 1000);
+        vault::deposit(&mut vault, coin, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    // Flash shift: borrow 400, repay 400 in same tx block
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+
+        let (borrowed_coin, receipt) = vault::request_flash_shift(
+            &agent_cap,
+            &mut vault,
+            400,
+            ts::ctx(&mut scenario),
+        );
+
+        // Vault balance is temporarily reduced
+        assert!(vault::vault_balance(&vault) == 600);
+
+        // Repay the full amount
+        vault::complete_flash_shift(
+            &mut vault,
+            borrowed_coin,
+            receipt,
+            b"to_cetus",
+            ts::ctx(&mut scenario),
+        );
+
+        // Vault balance restored
+        assert!(vault::vault_balance(&vault) == 1000);
+        assert!(vault::vault_lp_supply(&vault) == 1000);
+
+        ts::return_shared(vault);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = vault::EFlashLoanNotRepaid)]
+fun test_flash_shift_repayment_fails() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+    create_test_vault(&mut scenario);
+
+    // Deposit 1000
+    ts::next_tx(&mut scenario, USER1);
+    {
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+        let coin = mint_test_coin(&mut scenario, 1000);
+        vault::deposit(&mut vault, coin, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    // Flash shift: borrow 400, try to repay only 300 — should fail
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut vault = ts::take_shared<Vault<SUI>>(&scenario);
+
+        let (borrowed_coin, receipt) = vault::request_flash_shift(
+            &agent_cap,
+            &mut vault,
+            400,
+            ts::ctx(&mut scenario),
+        );
+
+        // Split the borrowed coin: keep 100, repay only 300
+        let mut borrowed_coin = borrowed_coin;
+        let kept = coin::split(&mut borrowed_coin, 100, ts::ctx(&mut scenario));
+
+        // Attempt repayment with insufficient amount — should abort
+        vault::complete_flash_shift(
+            &mut vault,
+            borrowed_coin,
+            receipt,
+            b"to_cetus",
+            ts::ctx(&mut scenario),
+        );
+
+        // Cleanup (unreachable due to abort)
+        coin::burn_for_testing(kept);
+        ts::return_shared(vault);
         ts::return_to_sender(&mut scenario, agent_cap);
     };
 
