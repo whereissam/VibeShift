@@ -178,12 +178,78 @@ Uses [`@cetusprotocol/cetus-sui-clmm-sdk`](https://github.com/CetusProtocol/cetu
 
 ---
 
+## Advanced Features: Machine-Native Efficiency
+
+### 1. Flash-Shift (Capital Efficiency via DeepBook V3)
+
+Use DeepBook V3 flash loans to move capital instantly — capture yield spikes on Cetus *before* Stablelayer redemption clears, eliminating "yield drag."
+
+#### Contract (`vault.move` — Flash-Orchestrator)
+
+- [ ] Implement `FlashReceipt` hot-potato struct (`amount`, `vault_id`)
+- [ ] Write `request_flash_shift` — AgentCap-gated, issues `FlashReceipt`
+- [ ] Write `complete_flash_shift` — consumes `FlashReceipt`, asserts repayment >= borrowed amount
+- [ ] Integrate DeepBook V3 `FlashLoan` borrow/repay within atomic PTB
+- [ ] Add `FlashShiftEvent` emission (amount, protocol, receipt_id)
+- [ ] Write unit tests for flash-shift happy path and repayment failure
+
+#### SDK (`src/lib/deepbook.ts`)
+
+- [ ] Install `@deepbook/sdk` or use DeepBook V3 move calls directly
+- [ ] Implement `buildFlashShiftTx()` — atomic PTB: borrow -> deposit to Cetus -> redeem from Stablelayer -> repay
+- [ ] Add flash loan pool discovery and available liquidity check
+
+### 2. Verifiable Intent (Walrus + Seal Encrypted Proofs)
+
+Encrypt the agent's strategy reasoning before uploading to Walrus. Prevents copy-trading bots from front-running while keeping proofs 100% auditable for vault users.
+
+#### Contract
+
+- [x] Add `EncryptedProofStored` event with `walrus_blob_id` and `seal_policy_id`
+- [x] Write `store_encrypted_proof` function — stores encrypted blob reference on-chain
+
+#### SDK (`src/lib/walrus-seal.ts`)
+
+- [x] Implement `encryptAndUploadProof()` — encrypts strategy blob (pool state, confidence score, shift params) with AES-256-GCM + HKDF
+- [x] Implement `decryptProof()` — authorized users/auditors can decrypt and verify
+- [x] Update `RebalanceEngine` to use encrypted proofs by default
+
+#### Agent (`sentinel.py`)
+
+- [x] Add `encrypt_strategy_blob()` — encrypt reasoning + pool state snapshot
+- [x] Update `upload_walrus_proof()` to use Seal encryption
+- [x] Add `decrypt` CLI command for auditor proof verification
+
+### 3. The Eternal Agent (Gas Autonomy)
+
+Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal) for SUI when its balance drops below threshold. The vault becomes a perpetual motion machine.
+
+#### Contract
+
+- [ ] Add `gas_reserve` field to `Vault<T>` or separate `GasReserve` shared object
+- [ ] Write `skim_yield_for_gas` — AgentCap-gated, caps at 0.5% of yield, never touches principal
+- [ ] Add `GasRefuelEvent` emission (yield_skimmed, sui_received)
+
+#### SDK (`src/lib/gas-autonomy.ts`)
+
+- [ ] Implement `checkAgentGasBalance()` — query agent address SUI balance
+- [ ] Implement `buildGasRefuelTx()` — atomic PTB: skim yield -> Cetus Aggregator swap to SUI -> transfer to agent
+- [ ] Integrate Cetus Aggregator SDK (`@cetusprotocol/aggregator`) for multi-hop yield-to-SUI swap
+
+#### Agent (`sentinel.py`)
+
+- [ ] Add `check_gas_balance()` — trigger refuel if agent SUI < 1.0
+- [ ] Implement `refuel()` — skim 0.5% yield, swap via Cetus Aggregator, log refuel event
+- [ ] Add refuel check at start of every `tick()` cycle
+
+---
+
 ## Track Qualification
 
 | Track | Qualification |
 |-------|--------------|
 | **Stablelayer Track** | Holds and manages $USD-Sui stablecoins via Stablelayer SDK |
-| **Safety Track** | Only `AgentCap` holder can move funds - permissioned rebalancing |
+| **Safety Track** | Only `AgentCap` holder can move funds; `FlashReceipt` hot-potato makes vault drain mathematically impossible |
 | **Move 2026** | Uses `public struct`, `mut`, and modern Move syntax |
 
 ---
@@ -195,7 +261,9 @@ Uses [`@cetusprotocol/cetus-sui-clmm-sdk`](https://github.com/CetusProtocol/cetu
   "stable-layer-sdk": "latest",
   "@mysten/sui": "latest",
   "@mysten/bcs": "latest",
-  "@cetusprotocol/cetus-sui-clmm-sdk": "latest"
+  "@mysten/walrus": "latest",
+  "@cetusprotocol/cetus-sui-clmm-sdk": "latest",
+  "@cetusprotocol/aggregator": "latest"
 }
 ```
 
@@ -203,6 +271,8 @@ Uses [`@cetusprotocol/cetus-sui-clmm-sdk`](https://github.com/CetusProtocol/cetu
 
 - [Stablelayer SDK Docs](./stablelayersdk.md)
 - [Cetus Developer Docs](https://cetus-1.gitbook.io/cetus-developer-docs)
+- [DeepBook V3 Docs](https://docs.deepbook.tech/)
 - [OpenClaw Skills Docs](https://docs.openclaw.ai/tools/skills)
 - [Sui Move 2026 Migration Guide](https://docs.sui.io/concepts/sui-move-concepts/packages/custom-policies)
 - [Walrus Storage](https://docs.walrus.site/)
+- [Walrus Seal](https://docs.walrus.site/walrus-sites/seal.html)

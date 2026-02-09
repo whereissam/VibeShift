@@ -159,6 +159,36 @@ export function buildStoreWalrusProofTx(
 }
 
 /**
+ * Store an encrypted Walrus blob ID on-chain. Requires AgentCap.
+ */
+export function buildStoreEncryptedProofTx(
+  vaultId: string,
+  walrusBlobId: string,
+  action: string,
+  sealPolicyId: string,
+  encryptionVersion: number,
+): Transaction {
+  const tx = new Transaction();
+  const encoder = new TextEncoder();
+  tx.moveCall({
+    target: `${VIBESHIFT_PACKAGE_ID}::${MODULE}::store_encrypted_proof`,
+    arguments: [
+      tx.object(AGENT_CAP_ID),
+      tx.pure.id(vaultId),
+      tx.pure.vector(
+        "u8",
+        Array.from(encoder.encode(walrusBlobId)),
+      ),
+      tx.pure.vector("u8", Array.from(encoder.encode(action))),
+      tx.pure.vector("u8", Array.from(encoder.encode(sealPolicyId))),
+      tx.pure.u8(encryptionVersion),
+      tx.object(CLOCK_ID),
+    ],
+  });
+  return tx;
+}
+
+/**
  * Transfer AgentCap to a new agent address.
  */
 export function buildTransferAgentCapTx(newAgent: string): Transaction {

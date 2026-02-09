@@ -13,6 +13,7 @@ const EInsufficientBalance: u64 = 0;
 const EZeroAmount: u64 = 1;
 const EVaultEmpty: u64 = 2;
 const EExceedsBalance: u64 = 3;
+const EEmptyBlobId: u64 = 4;
 
 // ===== Events =====
 
@@ -57,6 +58,15 @@ public struct WalrusProofStored has copy, drop {
     timestamp: u64,
     walrus_blob_id: vector<u8>,
     action: vector<u8>,
+}
+
+public struct EncryptedProofStored has copy, drop {
+    vault_id: ID,
+    timestamp: u64,
+    walrus_blob_id: vector<u8>,
+    action: vector<u8>,
+    seal_policy_id: vector<u8>,
+    encryption_version: u8,
 }
 
 // ===== Objects =====
@@ -243,6 +253,28 @@ public fun store_walrus_proof(
         timestamp: sui::clock::timestamp_ms(clock),
         walrus_blob_id,
         action,
+    });
+}
+
+/// Store an encrypted Walrus blob ID on-chain. The blob is AES-256-GCM
+/// encrypted; only holders of the seal policy key can decrypt it.
+public fun store_encrypted_proof(
+    _: &AgentCap,
+    vault_id: ID,
+    walrus_blob_id: vector<u8>,
+    action: vector<u8>,
+    seal_policy_id: vector<u8>,
+    encryption_version: u8,
+    clock: &sui::clock::Clock,
+) {
+    assert!(walrus_blob_id.length() > 0, EEmptyBlobId);
+    event::emit(EncryptedProofStored {
+        vault_id,
+        timestamp: sui::clock::timestamp_ms(clock),
+        walrus_blob_id,
+        action,
+        seal_policy_id,
+        encryption_version,
     });
 }
 

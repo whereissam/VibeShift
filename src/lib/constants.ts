@@ -46,3 +46,6 @@ export const MIN_REBALANCE_AMOUNT = 1_000_000n; // 1 USDC (6 decimals)
 export const MAX_SHIFT_PCT = 40; // Max 40% of TVL per rebalance
 export const YIELD_THRESHOLD_BPS = 200; // 2% differential to trigger rebalance
 export const REBALANCE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+// Walrus Seal encryption
+export const SEAL_ENCRYPTION_VERSION = 1;

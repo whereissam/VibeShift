@@ -385,3 +385,58 @@ fun test_transfer_agent_cap() {
 
     ts::end(scenario);
 }
+
+#[test]
+fun test_store_encrypted_proof() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let mut clock = sui::clock::create_for_testing(ts::ctx(&mut scenario));
+        sui::clock::set_for_testing(&mut clock, 1700000000000);
+
+        vault::store_encrypted_proof(
+            &agent_cap,
+            object::id_from_address(@0x1234),
+            b"blob_abc123",
+            b"to_cetus",
+            b"seal_policy_xyz",
+            1,
+            &clock,
+        );
+
+        sui::clock::destroy_for_testing(clock);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = vault::EEmptyBlobId)]
+fun test_store_encrypted_proof_empty_blob_fails() {
+    let mut scenario = ts::begin(ADMIN);
+    setup(&mut scenario);
+
+    ts::next_tx(&mut scenario, AGENT);
+    {
+        let agent_cap = ts::take_from_sender<AgentCap>(&scenario);
+        let clock = sui::clock::create_for_testing(ts::ctx(&mut scenario));
+
+        vault::store_encrypted_proof(
+            &agent_cap,
+            object::id_from_address(@0x1234),
+            b"",  // empty blob ID should fail
+            b"to_cetus",
+            b"seal_policy_xyz",
+            1,
+            &clock,
+        );
+
+        sui::clock::destroy_for_testing(clock);
+        ts::return_to_sender(&mut scenario, agent_cap);
+    };
+
+    ts::end(scenario);
+}

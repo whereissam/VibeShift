@@ -11,7 +11,10 @@ import {
   REBALANCE_COOLDOWN_MS,
   MIN_REBALANCE_AMOUNT,
   WALRUS_PUBLISHER,
+  SEAL_ENCRYPTION_VERSION,
 } from "./constants";
+import { encryptAndUploadProof, type ProofPlaintext } from "./walrus-seal";
+import { buildStoreEncryptedProofTx } from "./vault";
 import { getVaultState } from "./vault";
 import { getPoolStats } from "./cetus";
 import { getTotalSupply } from "./stablelayer";
@@ -30,6 +33,8 @@ export interface RebalanceResult {
   txDigest: string;
   decision: RebalanceDecision;
   walrusBlobId?: string;
+  encrypted?: boolean;
+  sealPolicyId?: string;
 }
 
 export class RebalanceEngine {
@@ -38,16 +43,19 @@ export class RebalanceEngine {
   private vaultId: string;
   private coinType: string;
   private lastRebalanceTime = 0;
+  private sealSecret?: string;
 
   constructor(
     signer: Keypair,
     vaultId: string,
     coinType: string,
+    sealSecret?: string,
   ) {
     this.client = new SuiClient({ url: SUI_RPC_URL });
     this.signer = signer;
     this.vaultId = vaultId;
     this.coinType = coinType;
+    this.sealSecret = sealSecret;
   }
 
   /**
@@ -196,8 +204,33 @@ export class RebalanceEngine {
 
     // 3. Store detailed proof on Walrus (best-effort)
     let walrusBlobId: string | undefined;
+    let encrypted = false;
+    let sealPolicyId: string | undefined;
+
     try {
-      walrusBlobId = await this.storeWalrusProof(decision);
+      if (this.sealSecret) {
+        const uploadResult = await this.storeEncryptedWalrusProof(decision);
+        walrusBlobId = uploadResult?.walrusBlobId;
+        sealPolicyId = uploadResult?.sealPolicyId;
+        encrypted = !!walrusBlobId;
+
+        // Store encrypted proof reference on-chain
+        if (walrusBlobId && sealPolicyId) {
+          const encTx = buildStoreEncryptedProofTx(
+            this.vaultId,
+            walrusBlobId,
+            decision.direction,
+            sealPolicyId,
+            SEAL_ENCRYPTION_VERSION,
+          );
+          await this.client.signAndExecuteTransaction({
+            transaction: encTx,
+            signer: this.signer,
+          });
+        }
+      } else {
+        walrusBlobId = await this.storeWalrusProof(decision);
+      }
     } catch {
       // Walrus upload is best-effort
     }
@@ -206,6 +239,8 @@ export class RebalanceEngine {
       txDigest: result.digest,
       decision,
       walrusBlobId,
+      encrypted,
+      sealPolicyId,
     };
   }
 
@@ -252,6 +287,40 @@ export class RebalanceEngine {
     }
 
     return undefined;
+  }
+
+  /**
+   * Encrypt proof and upload to Walrus. Returns encrypted upload result.
+   */
+  private async storeEncryptedWalrusProof(
+    decision: RebalanceDecision,
+  ): Promise<{ walrusBlobId: string; sealPolicyId: string } | undefined> {
+    if (!this.sealSecret) return undefined;
+
+    const proof: ProofPlaintext = {
+      timestamp: new Date().toISOString(),
+      vault_id: this.vaultId,
+      direction: decision.direction,
+      shift_pct: decision.shiftPct,
+      shift_amount: decision.shiftAmount.toString(),
+      reason: decision.reason,
+      cetus_yield_bps: decision.cetusYieldBps,
+      stablelayer_yield_bps: decision.stablelayerYieldBps,
+    };
+
+    try {
+      const result = await encryptAndUploadProof(
+        proof,
+        this.sealSecret,
+        this.vaultId,
+      );
+      return {
+        walrusBlobId: result.walrusBlobId,
+        sealPolicyId: result.sealPolicyId,
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   /**

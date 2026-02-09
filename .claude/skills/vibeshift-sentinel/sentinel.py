@@ -4,6 +4,7 @@ Monitors Cetus DEX and Stablelayer, triggers vault rebalances when yield
 differentials exceed configurable thresholds.
 """
 
+import base64
 import json
 import os
 import time
@@ -35,7 +36,15 @@ CETUS_POOL = os.getenv(
 WALRUS_PUBLISHER = os.getenv(
     "WALRUS_PUBLISHER", "https://publisher.walrus-testnet.walrus.space"
 )
+WALRUS_AGGREGATOR = os.getenv(
+    "WALRUS_AGGREGATOR", "https://aggregator.walrus-testnet.walrus.space"
+)
 CLOCK_ID = "0x6"
+
+# Seal encryption
+SEAL_SECRET = os.getenv("VIBESHIFT_SEAL_SECRET", "")
+HKDF_INFO = b"vibeshift-seal-v1"
+ENCRYPTION_VERSION = 1
 
 # Strategy
 YIELD_THRESHOLD_BPS = int(os.getenv("YIELD_THRESHOLD_BPS", "200"))
@@ -195,21 +204,97 @@ def analyze() -> Optional[ShiftAction]:
     )
 
 
+# ===== Seal Encryption =====
+
+
+def encrypt_strategy_blob(proof_dict: dict, secret: str, vault_id: str) -> dict:
+    """Encrypt a proof dict with AES-256-GCM using HKDF-derived key.
+
+    Compatible with the TypeScript walrus-seal.ts implementation:
+    same HKDF params (SHA-256, salt=vault_id, info="vibeshift-seal-v1").
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives import hashes
+
+    # Derive key via HKDF-SHA256
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=vault_id.encode(),
+        info=HKDF_INFO,
+    )
+    key = hkdf.derive(secret.encode())
+
+    # Encrypt with AES-256-GCM
+    iv = os.urandom(12)
+    aesgcm = AESGCM(key)
+    plaintext = json.dumps(proof_dict).encode()
+    ciphertext = aesgcm.encrypt(iv, plaintext, None)
+
+    return {
+        "v": ENCRYPTION_VERSION,
+        "iv": base64.b64encode(iv).decode(),
+        "ct": base64.b64encode(ciphertext).decode(),
+        "policy": f"vibeshift-seal-v1:{vault_id}",
+    }
+
+
+def decrypt_strategy_blob(payload: dict, secret: str, vault_id: str) -> dict:
+    """Decrypt an encrypted proof payload back to a dict.
+
+    Compatible with the TypeScript walrus-seal.ts implementation.
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives import hashes
+
+    if payload.get("v") != ENCRYPTION_VERSION:
+        raise ValueError(f"Unsupported encryption version: {payload.get('v')}")
+
+    # Derive key via HKDF-SHA256
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=vault_id.encode(),
+        info=HKDF_INFO,
+    )
+    key = hkdf.derive(secret.encode())
+
+    # Decrypt with AES-256-GCM
+    iv = base64.b64decode(payload["iv"])
+    ciphertext = base64.b64decode(payload["ct"])
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(iv, ciphertext, None)
+
+    return json.loads(plaintext.decode())
+
+
 # ===== Walrus Proof Storage =====
 
 
 def upload_walrus_proof(action: ShiftAction) -> Optional[str]:
-    """Upload a detailed reasoning proof to Walrus and return the blob ID."""
+    """Upload a detailed reasoning proof to Walrus and return the blob ID.
+
+    If SEAL_SECRET is set, encrypts the proof before uploading.
+    """
     proof = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "vault_id": VAULT_ID,
         **asdict(action),
     }
 
+    # Encrypt if seal secret is configured
+    if SEAL_SECRET:
+        body = json.dumps(encrypt_strategy_blob(proof, SEAL_SECRET, VAULT_ID))
+        log.info("Uploading encrypted proof to Walrus")
+    else:
+        body = json.dumps(proof)
+
     try:
         resp = httpx.put(
             f"{WALRUS_PUBLISHER}/v1/blobs?epochs=5",
-            content=json.dumps(proof),
+            content=body,
             timeout=30,
         )
         if resp.status_code != 200:
@@ -323,5 +408,23 @@ if __name__ == "__main__":
     elif cmd == "loop":
         interval = int(sys.argv[2]) if len(sys.argv) > 2 else 600
         run_loop(interval)
+    elif cmd == "decrypt":
+        if len(sys.argv) < 3:
+            print("Usage: python sentinel.py decrypt <blob_id> [vault_id]")
+            sys.exit(1)
+        blob_id = sys.argv[2]
+        vault_id = sys.argv[3] if len(sys.argv) > 3 else VAULT_ID
+        if not SEAL_SECRET:
+            print("Error: VIBESHIFT_SEAL_SECRET env var not set")
+            sys.exit(1)
+        if not vault_id:
+            print("Error: vault_id not provided and VIBESHIFT_VAULT_ID not set")
+            sys.exit(1)
+        # Fetch from Walrus aggregator
+        resp = httpx.get(f"{WALRUS_AGGREGATOR}/v1/blobs/{blob_id}", timeout=30)
+        resp.raise_for_status()
+        payload = resp.json()
+        decrypted = decrypt_strategy_blob(payload, SEAL_SECRET, vault_id)
+        print(json.dumps(decrypted, indent=2))
     else:
-        print(f"Usage: python sentinel.py [status|once|loop [interval_secs]]")
+        print("Usage: python sentinel.py [status|once|loop [interval_secs]|decrypt <blob_id> [vault_id]]")
