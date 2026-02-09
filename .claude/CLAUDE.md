@@ -1,0 +1,1 @@
+Always use bun and bunx

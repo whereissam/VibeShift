@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(sui:*)",
+      "Bash(curl:*)",
+      "Bash(bun add:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(bun run build:*)"
+    ],
+    "deny": []
+  }
+}

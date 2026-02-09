@@ -1,0 +1,12 @@
+[package]
+name = "vibeshift"
+edition = "2024.beta"
+
+[dependencies]
+
+[addresses]
+vibeshift = "0x0"
+
+[dev-dependencies]
+
+[dev-addresses]
