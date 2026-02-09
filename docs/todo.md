@@ -164,29 +164,17 @@ Uses [`@cetusprotocol/cetus-sui-clmm-sdk`](https://github.com/CetusProtocol/cetu
 - [x] Connect wallet (Sui Wallet adapter) - `@mysten/dapp-kit` WalletProvider + ConnectButton in nav
 - [x] Deposit/withdraw UI for the vault - VaultActions component with deposit/withdraw toggle
 
-### Demo
-
-- [ ] Record demo video showing:
-  - [ ] Agent detecting yield differential
-  - [ ] Autonomous rebalance transaction
-  - [ ] Reasoning proof appearing on-chain
-  - [ ] Dashboard updating in real-time
-- [ ] Write submission description highlighting:
-  - Move 2026 compliance (`public struct`, `mut` syntax)
-  - Agent-centric design (`AgentCap` pattern)
-  - Dual-track qualification (Stablelayer + Safety tracks)
-
 ---
 
-## Advanced Features: Machine-Native Efficiency
+## Advanced Features: Machine-Native Efficiency ("God-Tier" Enhancements)
 
-### 1. Flash-Shift (Capital Efficiency via DeepBook V3)
+### 1. Flash-Shift (Capital Efficiency via Hot-Potato Pattern)
 
-Use DeepBook V3 flash loans to move capital instantly — capture yield spikes on Cetus *before* Stablelayer redemption clears, eliminating "yield drag."
+Use Move's hot-potato pattern for zero-drag capital rebalancing. `FlashReceipt` has **no abilities** — the Move VM enforces repayment at the type-system level, making vault drain mathematically impossible.
 
 #### Contract (`vault.move` — Flash-Orchestrator)
 
-- [x] Implement `FlashReceipt` hot-potato struct (`amount`, `vault_id`)
+- [x] Implement `FlashReceipt` hot-potato struct (`amount`, `vault_id`) — zero abilities
 - [x] Write `request_flash_shift` — AgentCap-gated, issues `FlashReceipt`
 - [x] Write `complete_flash_shift` — consumes `FlashReceipt`, asserts repayment >= borrowed amount
 - [x] Integrate DeepBook V3 `FlashLoan` borrow/repay within atomic PTB
@@ -199,9 +187,30 @@ Use DeepBook V3 flash loans to move capital instantly — capture yield spikes o
 - [x] Implement `buildFlashShiftTx()` — atomic PTB: borrow -> deposit to Cetus -> redeem from Stablelayer -> repay
 - [x] Add flash loan pool discovery and available liquidity check
 
-### 2. Verifiable Intent (Walrus + Seal Encrypted Proofs)
+### 1b. DeepBook V3 "Liquidity Injection" (Overflow Capital)
 
-Encrypt the agent's strategy reasoning before uploading to Walrus. Prevents copy-trading bots from front-running while keeping proofs 100% auditable for vault users.
+When a yield spike requires *more* capital than the vault currently holds, combine Flash-Shift with a DeepBook V3 flash loan for extra liquidity — all in one atomic PTB.
+
+#### Contract
+
+- [ ] Add `request_deepbook_flash_loan` helper that wraps DeepBook V3 borrow into the Flash-Shift PTB
+- [ ] Ensure DeepBook repayment is enforced within the same PTB alongside vault `FlashReceipt`
+
+#### SDK (`src/lib/deepbook.ts`)
+
+- [ ] Implement `buildFlashShiftWithDeepBookTx()` — compound PTB: vault flash-shift + DeepBook flash loan -> deploy combined capital -> repay both
+- [ ] Add `getDeepBookFlashLoanCapacity()` — query available DeepBook V3 liquidity
+
+#### Agent (`sentinel.py`)
+
+- [ ] Add logic: if optimal shift amount > vault balance, calculate DeepBook supplement needed
+- [ ] Log "Liquidity Injection" events with both vault and DeepBook amounts
+
+### 2. Verifiable Intent — "Strategy Black-Box" (Walrus + Seal Encrypted Proofs)
+
+In 2026, "Strategy Leakage" is a real concern — if the agent is good, copy-trading bots will front-run it. Use **Walrus Seal** to encrypt the agent's reasoning while keeping proofs 100% auditable.
+
+The Agent uploads raw metrics (Cetus depth, Stablelayer fee history) to Walrus as an encrypted blob. Only the **Blob ID** and a **Zk-Proof of Intent** go on-chain. This satisfies the **Safety Track** by protecting the user's "Financial Alpha" from being stolen by other agents.
 
 #### Contract
 
@@ -220,11 +229,11 @@ Encrypt the agent's strategy reasoning before uploading to Walrus. Prevents copy
 - [x] Update `upload_walrus_proof()` to use Seal encryption
 - [x] Add `decrypt` CLI command for auditor proof verification
 
-### 3. The Eternal Agent (Gas Autonomy)
+### 3. The Eternal Agent (Gas Autonomy + Cetus Aggregator Refuel)
 
-Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal) for SUI when its balance drops below threshold. The vault becomes a perpetual motion machine.
+Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal) for SUI when its balance drops below threshold. The vault becomes a perpetual motion machine — a truly "God Mode" agent that never needs a human to top up its wallet.
 
-#### Contract
+#### Contract (`vault.move`)
 
 - [x] Add error codes (`ENoYield`, `ESkimExceedsLimit`) and `GAS_SKIM_BPS` constant
 - [x] Write `skim_yield_for_gas` — AgentCap-gated, caps at 0.5% of yield, never touches principal
@@ -236,11 +245,56 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 - [x] Implement `buildSkimYieldForGasTx()` — build skim yield transaction
 - [x] Implement `shouldRefuel()` — check if SUI balance below threshold
 
+#### Cetus Aggregator Refueler (`src/lib/refuel.ts`)
+
+- [ ] Implement `buildRefuelPTB()` — atomic PTB: skim yield from vault -> Cetus Aggregator swap (USDC->SUI) -> transfer SUI to agent wallet
+- [ ] Use `@cetusprotocol/aggregator` `findRouters()` for best USDC->SUI route
+- [ ] Use `routerSwap()` to execute multi-hop swap within the PTB
+- [ ] Configure slippage tolerance (default 1%)
+
 #### Agent (`sentinel.py`)
 
 - [x] Add `check_gas_balance()` — query agent SUI balance via RPC
 - [x] Implement `refuel()` — check yield, log refuel recommendation (execution delegated to TS)
 - [x] Add gas check at start of every `run_loop()` cycle + `gas` CLI command
+- [ ] Add 0.5 SUI threshold trigger for autonomous refuel
+- [ ] Log refuel events with before/after balances
+
+---
+
+## Submission Prep (Vibe Sui Spring Fest 2026 — Due Feb 11)
+
+### AI Disclosure
+
+- [ ] Create `AI_DISCLOSURE.md` in repo root
+  - Architecture designed by Gemini (v2026)
+  - Move boilerplate generated via Sui Stack Claude Plugin
+  - Refactoring and implementation by [Your Name]
+
+### Pre-Submit Checklist
+
+- [x] **Move 2026 Syntax** — Uses `public struct` (old `struct` is instant DQ)
+- [x] **Open Source** — GitHub repo is public with `README.md` and deployment instructions
+- [x] **Stablelayer/Cetus** — Code calls their SDKs (imports in `package.json`)
+- [ ] **AI Disclosure** — `AI_DISCLOSURE.md` created and linked in README
+- [ ] **Live Demo** — Video shows the Agent making a decision (the "Vibe" comes from seeing AI think)
+- [ ] **Yield Drag Counter** — Demo shows "Saved X% via Atomic Flash-Shift" metric
+- [ ] **PTB Flow Diagram** — Visual in README and flash-shift docs (judges skim text but look at diagrams)
+
+### Demo Enhancements
+
+- [ ] Record demo video showing:
+  - [ ] Agent detecting yield differential
+  - [ ] Autonomous rebalance transaction (Flash-Shift in one PTB)
+  - [ ] Reasoning proof appearing on-chain (encrypted via Walrus Seal)
+  - [ ] Dashboard updating in real-time
+  - [ ] "Yield Drag Saved" live counter
+  - [ ] Agent gas self-refuel in action
+- [ ] Write submission description highlighting:
+  - Move 2026 compliance (`public struct`, `mut` syntax)
+  - Agent-centric design (`AgentCap` + hot-potato `FlashReceipt`)
+  - Triple-track qualification (Stablelayer + Safety + Move 2026)
+  - Machine-native architecture: Flash-Shift + Autonomous Refuel = first self-sustaining financial organism on Sui
 
 ---
 
@@ -248,9 +302,9 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 
 | Track | Qualification |
 |-------|--------------|
-| **Stablelayer Track** | Holds and manages $USD-Sui stablecoins via Stablelayer SDK |
-| **Safety Track** | Only `AgentCap` holder can move funds; `FlashReceipt` hot-potato makes vault drain mathematically impossible |
-| **Move 2026** | Uses `public struct`, `mut`, and modern Move syntax |
+| **Stablelayer Track** | Holds and manages $USD-Sui stablecoins via Stablelayer SDK (mint, burn, claim); uses Stablelayer as the "Base Stability" layer |
+| **Safety Track** | `AgentCap`-gated fund movement; `FlashReceipt` hot-potato makes vault drain *mathematically impossible* at the Move VM level; Walrus Seal encrypts strategy to prevent copy-trading |
+| **Move 2026** | Uses `public struct`, `mut`, hot-potato receipt pattern, and modern Move syntax throughout |
 
 ---
 
@@ -276,3 +330,4 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 - [Sui Move 2026 Migration Guide](https://docs.sui.io/concepts/sui-move-concepts/packages/custom-policies)
 - [Walrus Storage](https://docs.walrus.site/)
 - [Walrus Seal](https://docs.walrus.site/walrus-sites/seal.html)
+- [Cetus Aggregator SDK](https://github.com/CetusProtocol/cetus-aggregator)

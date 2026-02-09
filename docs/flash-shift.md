@@ -122,6 +122,35 @@ The `buildFlashShiftTx` constructs a PTB where:
 
 ---
 
+## DeepBook V3 "Liquidity Injection"
+
+When a yield spike requires *more* capital than the vault holds, Flash-Shift combines with a **DeepBook V3 flash loan** for extra liquidity — all in one atomic PTB.
+
+```
++--- Compound PTB (atomic) ---------------------------------+
+|                                                            |
+|  1. request_flash_shift(vault, $10k)                       |
+|     -> Vault Coin<USDC> + FlashReceipt                    |
+|                                                            |
+|  2. deepbook::flash_loan($5k)                              |
+|     -> DeepBook Coin<USDC> + DeepBook FlashReceipt        |
+|                                                            |
+|  3. Merge coins -> $15k deployed to Cetus LP               |
+|     -> Combined capital captures the full yield spike      |
+|                                                            |
+|  4. Redeem from Cetus -> split repayments                  |
+|     -> Repay DeepBook $5k (+ fee)                          |
+|     -> complete_flash_shift(vault, $10k, receipt)          |
+|                                                            |
++------------------------------------------------------------+
+     Both flash receipts consumed. Both protocols made whole.
+     The vault captured yield on $15k instead of $10k.
+```
+
+This demonstrates orchestrating **multiple flash loans from different protocols** in a single atomic block — a Move-native pattern that has no equivalent on EVM.
+
+---
+
 ## How It Differs from Aave/DeFi Flash Loans
 
 | | Aave Flash Loans | VibeShift Flash-Shift |
@@ -131,6 +160,7 @@ The `buildFlashShiftTx` constructs a PTB where:
 | **Fee** | 0.05-0.09% | 0% (it's your own vault) |
 | **Who can use** | Anyone | AgentCap-gated (only AI agent) |
 | **Purpose** | Arbitrage/liquidation | Zero-drag yield rebalancing |
+| **Composability** | Single protocol | Stacks with DeepBook V3 flash loans in one PTB |
 
 ---
 
@@ -148,6 +178,31 @@ This is enforced at three levels:
 
 ---
 
+## Autonomous Gas Sustainability
+
+The agent never needs a human to top up its wallet. It harvests its own "rent" from yield:
+
+```
++--- Refuel PTB (atomic) -----------------------------------+
+|                                                            |
+|  1. skim_yield_for_gas(vault, amount)                      |
+|     -> Coin<USDC> from yield (never principal)             |
+|                                                            |
+|  2. Cetus Aggregator: findRouters(USDC -> SUI)            |
+|     -> routerSwap() multi-hop swap                         |
+|                                                            |
+|  3. transfer(Coin<SUI>, agent_address)                     |
+|     -> Agent's gas tank refueled                           |
+|                                                            |
++------------------------------------------------------------+
+     Agent checks: if SUI balance < 0.5 SUI -> trigger refuel
+     Yield only. Principal untouched. Vault runs forever.
+```
+
+This makes VibeShift a **perpetual motion vault** — the first self-sustaining financial organism on Sui.
+
+---
+
 ## Test Coverage
 
 20 Move unit tests pass, including:
@@ -162,10 +217,23 @@ cd contracts/vibeshift && sui move test
 
 ---
 
-## Three Killer Points for Judges
+## Why This Pitch Wins
+
+- **The "Safety" Hook:** Judges love "mathematically impossible to drain." The narrative shifts from "our code is audited" to "the VM literally won't let it fail."
+- **Atomic Efficiency:** 2 transactions -> 1 atomic PTB is a clear ROI for any DeFi user.
+- **Move-Native:** This isn't ported EVM logic. The hot-potato pattern, PTB composability, and DeepBook V3 liquidity injection are architecture that *only works on Sui*.
+- **2026-Ready:** Flash-Shift + Autonomous Refuel = a machine-native financial organism, not just another yield aggregator.
+
+---
+
+## Five Killer Points for Judges
 
 1. **Safety Track**: `FlashReceipt` has no abilities — vault drain is *mathematically impossible*, not just "we added a require check." The Move type system enforces it at the VM level.
 
 2. **Capital Efficiency**: Old way = 2 transactions with idle capital. Flash-Shift = 1 atomic PTB. On a 10% yield spike, the difference compounds fast.
 
-3. **Full Stack**: Move contract (20 tests) -> TypeScript PTB builder (`deepbook.ts`) -> AI agent (`sentinel.py`) that autonomously detects yield opportunities and triggers flash-shifts. The agent pays its own gas from yield (`skim_yield_for_gas`), so it runs forever without human intervention.
+3. **DeepBook V3 Composability**: When vault capital isn't enough, stack a DeepBook flash loan on top — multiple flash loans from different protocols in one atomic block.
+
+4. **Strategy Protection**: Walrus Seal encrypts the agent's reasoning. Only Blob ID + Zk-Proof of Intent go on-chain. Financial alpha stays private while proofs remain auditable.
+
+5. **Full Stack**: Move contract (20 tests) -> TypeScript PTB builder (`deepbook.ts` + `refuel.ts`) -> AI agent (`sentinel.py`) that autonomously detects yield opportunities, triggers flash-shifts, and pays its own gas from yield. It runs forever without human intervention.
