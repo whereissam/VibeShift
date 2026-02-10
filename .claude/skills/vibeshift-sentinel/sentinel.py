@@ -212,15 +212,18 @@ def analyze() -> Optional[ShiftAction]:
         return None
 
     direction = "to_cetus" if cetus_yield_bps > stable_yield_bps else "to_stablelayer"
-    shift_pct = min(MAX_SHIFT_PCT, diff // 10)
-    shift_amount = (vault.balance * shift_pct) // 100
 
-    # Liquidity Injection: if optimal shift exceeds vault balance,
-    # calculate DeepBook V3 supplement needed
+    # Compute uncapped optimal shift percentage from yield differential,
+    # then determine how much capital that actually requires
+    optimal_pct = diff // 10
+    optimal_amount = (vault.balance * optimal_pct) // 100
+
+    # Liquidity Injection: if the optimal deployment exceeds what the
+    # vault can supply alone, borrow the remainder from DeepBook V3
     deepbook_supplement = 0
-    if shift_amount > vault.balance:
+    if optimal_amount > vault.balance:
         deepbook_capacity = get_deepbook_flash_loan_capacity()
-        needed = shift_amount - vault.balance
+        needed = optimal_amount - vault.balance
         deepbook_supplement = min(needed, deepbook_capacity)
         if deepbook_supplement > 0:
             log.info(
@@ -229,8 +232,10 @@ def analyze() -> Optional[ShiftAction]:
                 deepbook_supplement,
                 vault.balance + deepbook_supplement,
             )
-        # Cap shift_amount to what we can actually deploy
-        shift_amount = vault.balance + deepbook_supplement
+
+    # Cap the vault's own contribution to MAX_SHIFT_PCT
+    shift_pct = min(MAX_SHIFT_PCT, optimal_pct)
+    shift_amount = (vault.balance * shift_pct) // 100 + deepbook_supplement
 
     reason = (
         f"Cetus yield {cetus_yield_bps}bps vs Stablelayer {stable_yield_bps}bps, "

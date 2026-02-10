@@ -45,8 +45,9 @@ function RootLayout() {
             <div className="flex items-center space-x-4 md:space-x-8">
               <Link
                 to="/"
-                className="text-lg font-semibold text-foreground hover:text-primary transition-colors"
+                className="flex items-center gap-2 text-lg font-semibold text-foreground hover:text-primary transition-colors"
               >
+                <img src="/logo.svg" alt="VibeShift" className="h-8 w-8" />
                 VibeShift
               </Link>
               <div className="hidden sm:flex space-x-6">

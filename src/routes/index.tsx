@@ -365,7 +365,10 @@ function Dashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">VibeShift</h1>
+            <h1 className="flex items-center gap-3 text-3xl font-bold text-foreground">
+              <img src="/logo.svg" alt="VibeShift" className="h-10 w-10" />
+              VibeShift
+            </h1>
             <p className="text-muted-foreground mt-1">
               Yield at the speed of intent
             </p>
