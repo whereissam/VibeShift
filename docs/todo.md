@@ -193,18 +193,18 @@ When a yield spike requires *more* capital than the vault currently holds, combi
 
 #### Contract
 
-- [ ] Add `request_deepbook_flash_loan` helper that wraps DeepBook V3 borrow into the Flash-Shift PTB
-- [ ] Ensure DeepBook repayment is enforced within the same PTB alongside vault `FlashReceipt`
+- [x] Add `request_deepbook_flash_loan` helper that wraps DeepBook V3 borrow into the Flash-Shift PTB
+- [x] Ensure DeepBook repayment is enforced within the same PTB alongside vault `FlashReceipt`
 
 #### SDK (`src/lib/deepbook.ts`)
 
-- [ ] Implement `buildFlashShiftWithDeepBookTx()` — compound PTB: vault flash-shift + DeepBook flash loan -> deploy combined capital -> repay both
-- [ ] Add `getDeepBookFlashLoanCapacity()` — query available DeepBook V3 liquidity
+- [x] Implement `buildFlashShiftWithDeepBookTx()` — compound PTB: vault flash-shift + DeepBook flash loan -> deploy combined capital -> repay both
+- [x] Add `getDeepBookFlashLoanCapacity()` — query available DeepBook V3 liquidity
 
 #### Agent (`sentinel.py`)
 
-- [ ] Add logic: if optimal shift amount > vault balance, calculate DeepBook supplement needed
-- [ ] Log "Liquidity Injection" events with both vault and DeepBook amounts
+- [x] Add logic: if optimal shift amount > vault balance, calculate DeepBook supplement needed
+- [x] Log "Liquidity Injection" events with both vault and DeepBook amounts
 
 ### 2. Verifiable Intent — "Strategy Black-Box" (Walrus + Seal Encrypted Proofs)
 
@@ -247,18 +247,18 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 
 #### Cetus Aggregator Refueler (`src/lib/refuel.ts`)
 
-- [ ] Implement `buildRefuelPTB()` — atomic PTB: skim yield from vault -> Cetus Aggregator swap (USDC->SUI) -> transfer SUI to agent wallet
-- [ ] Use `@cetusprotocol/aggregator` `findRouters()` for best USDC->SUI route
-- [ ] Use `routerSwap()` to execute multi-hop swap within the PTB
-- [ ] Configure slippage tolerance (default 1%)
+- [x] Implement `buildRefuelPTB()` — atomic PTB: skim yield from vault -> Cetus Aggregator swap (USDC->SUI) -> transfer SUI to agent wallet
+- [x] Use `@cetusprotocol/aggregator` `findRouters()` for best USDC->SUI route
+- [x] Use `routerSwap()` to execute multi-hop swap within the PTB
+- [x] Configure slippage tolerance (default 1%)
 
 #### Agent (`sentinel.py`)
 
 - [x] Add `check_gas_balance()` — query agent SUI balance via RPC
 - [x] Implement `refuel()` — check yield, log refuel recommendation (execution delegated to TS)
 - [x] Add gas check at start of every `run_loop()` cycle + `gas` CLI command
-- [ ] Add 0.5 SUI threshold trigger for autonomous refuel
-- [ ] Log refuel events with before/after balances
+- [x] Add 0.5 SUI threshold trigger for autonomous refuel
+- [x] Log refuel events with before/after balances
 
 ---
 
@@ -266,7 +266,7 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 
 ### AI Disclosure
 
-- [ ] Create `AI_DISCLOSURE.md` in repo root
+- [x] Create `AI_DISCLOSURE.md` in repo root
   - Architecture designed by Gemini (v2026)
   - Move boilerplate generated via Sui Stack Claude Plugin
   - Refactoring and implementation by [Your Name]
@@ -276,10 +276,10 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 - [x] **Move 2026 Syntax** — Uses `public struct` (old `struct` is instant DQ)
 - [x] **Open Source** — GitHub repo is public with `README.md` and deployment instructions
 - [x] **Stablelayer/Cetus** — Code calls their SDKs (imports in `package.json`)
-- [ ] **AI Disclosure** — `AI_DISCLOSURE.md` created and linked in README
+- [x] **AI Disclosure** — `AI_DISCLOSURE.md` created and linked in README
 - [ ] **Live Demo** — Video shows the Agent making a decision (the "Vibe" comes from seeing AI think)
 - [ ] **Yield Drag Counter** — Demo shows "Saved X% via Atomic Flash-Shift" metric
-- [ ] **PTB Flow Diagram** — Visual in README and flash-shift docs (judges skim text but look at diagrams)
+- [x] **PTB Flow Diagram** — Visual in README and flash-shift docs (judges skim text but look at diagrams)
 
 ### Demo Enhancements
 

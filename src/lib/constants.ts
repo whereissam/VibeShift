@@ -30,6 +30,16 @@ export const BTC_USDC_TYPE =
 export const CETUS_SUI_USDC_POOL =
   "0xcf994611fd4c48e277ce3ffd4d4364c914af2c3cbb05f7bf6facd371de688571";
 
+// DeepBook V3 (note: 0xdee9 is deprecated V2)
+export const DEEPBOOK_PACKAGE_ID =
+  NETWORK === "mainnet"
+    ? "0x337f4f4f6567fcd778d5454f27c16c70e2f274cc6377ea6249ddf491482ef497"
+    : "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c";
+export const DEEPBOOK_SUI_USDC_POOL =
+  NETWORK === "mainnet"
+    ? "0x18d871e3c3da99046dfc0d3de612c5d88859bc03b8f0568571c2a2d9d010b923"
+    : "0x1c19362ca52b8ffd7a33cee805a67d40f31e6ba303753fd3a4cfdfacea7163a5";
+
 // Walrus endpoints
 export const WALRUS_AGGREGATOR =
   NETWORK === "mainnet"
@@ -50,6 +60,10 @@ export const REBALANCE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 // Gas autonomy
 export const GAS_SKIM_BPS = 50; // 0.5% of yield — matches Move contract
 export const GAS_MIN_SUI_BALANCE = 500_000_000n; // 0.5 SUI (9 decimals)
+
+// Refuel
+export const REFUEL_SLIPPAGE = 0.01; // 1% slippage for USDC->SUI swap
+export const REFUEL_DEFAULT_AMOUNT = 10_000_000n; // 10 USDC (6 decimals)
 
 // Walrus Seal encryption
 export const SEAL_ENCRYPTION_VERSION = 1;
