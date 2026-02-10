@@ -113,7 +113,7 @@ export function buildFlashShiftWithDeepBookTx(
   // The merged vaultCoin now holds vaultAmount + deepbookAmount
 
   // Step 5: Split repayment for DeepBook (must repay exact amount borrowed)
-  const deepbookRepayment = tx.splitCoins(vaultCoin, [
+  const [deepbookRepayment] = tx.splitCoins(vaultCoin, [
     tx.pure.u64(deepbookAmount),
   ]);
 
