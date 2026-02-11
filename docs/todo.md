@@ -189,7 +189,7 @@ Use Move's hot-potato pattern for zero-drag capital rebalancing. `FlashReceipt` 
 
 ### 1b. DeepBook V3 "Liquidity Injection" (Overflow Capital)
 
-When a yield spike requires *more* capital than the vault currently holds, combine Flash-Shift with a DeepBook V3 flash loan for extra liquidity — all in one atomic PTB.
+When a yield spike requires *more* capital than the vault currently holds, combine Flash-Shift with a DeepBook V3 flash loan for extra liquidity — all in one atomic PTB. The key insight: borrow from DeepBook's order-book liquidity to rebalance *without selling the vault's underlying assets*. The vault captures yield on amplified capital and repays from proceeds.
 
 #### Contract
 
@@ -205,6 +205,24 @@ When a yield spike requires *more* capital than the vault currently holds, combi
 
 - [x] Add logic: if optimal shift amount > vault balance, calculate DeepBook supplement needed
 - [x] Log "Liquidity Injection" events with both vault and DeepBook amounts
+
+### 1c. Slippage Guard (Pre-Flight Abort)
+
+Flash-Shift reverts atomically if repayment falls short, but a failed PTB still wastes gas. Add a pre-flight slippage check so the agent never submits a doomed transaction.
+
+#### SDK (`src/lib/deepbook.ts`)
+
+- [ ] Add `simulateFlashShift()` — dry-run the PTB via `devInspectTransactionBlock` to estimate output
+- [ ] Add `checkSlippageTolerance()` — compare simulated output vs required repayment, abort if slippage > threshold
+- [ ] Wire slippage guard into `buildFlashShiftTx()` and `buildFlashShiftWithDeepBookTx()` as pre-flight step
+
+#### Agent (`sentinel.py`)
+
+- [ ] Add `preswap_check()` — call Cetus `preswap()` before submitting rebalance PTB
+- [ ] If expected slippage > configured tolerance (default 1%), log warning and skip the rebalance cycle
+- [ ] Add `SLIPPAGE_TOLERANCE_BPS` env var (default 100 = 1%)
+
+---
 
 ### 2. Verifiable Intent — "Strategy Black-Box" (Walrus + Seal Encrypted Proofs)
 
@@ -262,6 +280,42 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 
 ---
 
+## Polish: Strategy Explorer & Demo Readiness
+
+### 4. Strategy Explorer (Make the AI Tangible)
+
+A "Zk-Proof of Intent" stored on Walrus is invisible to judges. The Strategy Explorer pulls decrypted (or summarized) reasoning from Walrus and visualizes it — making the agent's decisions tangible, not mystical.
+
+#### Frontend (`src/routes/strategy-explorer.tsx`)
+
+- [ ] Create Strategy Explorer route with TanStack Router
+- [ ] Implement proof timeline — chronological list of all rebalance events with expandable detail
+- [ ] For each proof, show:
+  - [ ] Direction (to_cetus / to_stablelayer) with visual indicator
+  - [ ] Yield chart — Cetus APY vs Stablelayer APY at time of decision, with the differential highlighted
+  - [ ] Pool state snapshot — liquidity depth, volume, fee rate from the agent's perspective
+  - [ ] Confidence score and shift percentage
+  - [ ] Reasoning text (decrypted from Walrus Seal via `downloadAndDecryptProof()`)
+  - [ ] Link to on-chain transaction on Sui Explorer
+- [ ] Add "Yield Drag Saved" cumulative counter — sum of `(shift_amount * time_saved * yield_rate)` across all Flash-Shift events
+- [ ] Add proof decryption toggle — show encrypted blob vs decrypted plaintext side-by-side
+
+#### SDK Integration
+
+- [ ] Wire `downloadAndDecryptProof()` from `walrus-seal.ts` into the explorer component
+- [ ] Add `getRebalanceEvents()` helper — query on-chain `RebalanceEvent` and `FlashShiftEvent` emissions
+- [ ] Cache decrypted proofs in localStorage to avoid repeated Walrus fetches
+
+### 5. Peer Dependency Verification
+
+React 19 and Tailwind v4 are bleeding edge. Ensure SDK compatibility before the demo.
+
+- [ ] Run `bun install` and verify zero peer dependency warnings for `stable-layer-sdk`, `@mysten/dapp-kit`, `@cetusprotocol/cetus-sui-clmm-sdk`
+- [ ] If conflicts exist, pin React to 18.x or add `overrides` in `package.json`
+- [ ] Test full build (`bun run build`) with no warnings
+
+---
+
 ## Submission Prep (Vibe Sui Spring Fest 2026 — Due Feb 11)
 
 ### AI Disclosure
@@ -278,8 +332,11 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 - [x] **Stablelayer/Cetus** — Code calls their SDKs (imports in `package.json`)
 - [x] **AI Disclosure** — `AI_DISCLOSURE.md` created and linked in README
 - [ ] **Live Demo** — Video shows the Agent making a decision (the "Vibe" comes from seeing AI think)
-- [ ] **Yield Drag Counter** — Demo shows "Saved X% via Atomic Flash-Shift" metric
+- [ ] **Strategy Explorer** — Judges can click through decrypted proofs and see the AI's reasoning visually
+- [ ] **Yield Drag Counter** — Demo shows "Saved X% via Atomic Flash-Shift" metric (cumulative in Strategy Explorer)
 - [x] **PTB Flow Diagram** — Visual in README and flash-shift docs (judges skim text but look at diagrams)
+- [x] **FlashReceipt Source Code** — Actual Move struct definition in README (proves the "no abilities" claim)
+- [ ] **Slippage Guard** — Pre-flight abort prevents wasted gas on high-slippage rebalances
 
 ### Demo Enhancements
 
@@ -287,12 +344,17 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
   - [ ] Agent detecting yield differential
   - [ ] Autonomous rebalance transaction (Flash-Shift in one PTB)
   - [ ] Reasoning proof appearing on-chain (encrypted via Walrus Seal)
+  - [ ] Strategy Explorer: click a proof → see yield chart, pool state, confidence score, reasoning
   - [ ] Dashboard updating in real-time
-  - [ ] "Yield Drag Saved" live counter
+  - [ ] "Yield Drag Saved" cumulative counter in Strategy Explorer
   - [ ] Agent gas self-refuel in action
+  - [ ] Slippage guard: show agent skipping a high-slippage cycle (log output)
 - [ ] Write submission description highlighting:
   - Move 2026 compliance (`public struct`, `mut` syntax)
   - Agent-centric design (`AgentCap` + hot-potato `FlashReceipt`)
+  - Show the `FlashReceipt` struct source: zero abilities = type-system enforcement, not runtime checks
+  - DeepBook V3 flash loans used to rebalance *without selling underlying assets* — a sophisticated use of Sui's DeFi primitives
+  - Strategy Explorer makes AI reasoning tangible (not mystical)
   - Triple-track qualification (Stablelayer + Safety + Move 2026)
   - Machine-native architecture: Flash-Shift + Autonomous Refuel = first self-sustaining financial organism on Sui
 
@@ -303,7 +365,7 @@ Self-sustaining gas: the agent auto-swaps a fraction of *yield* (never principal
 | Track | Qualification |
 |-------|--------------|
 | **Stablelayer Track** | Holds and manages $USD-Sui stablecoins via Stablelayer SDK (mint, burn, claim); uses Stablelayer as the "Base Stability" layer |
-| **Safety Track** | `AgentCap`-gated fund movement; `FlashReceipt` hot-potato makes vault drain *mathematically impossible* at the Move VM level; Walrus Seal encrypts strategy to prevent copy-trading |
+| **Safety Track** | `AgentCap`-gated fund movement; `FlashReceipt` hot-potato enforces atomic repayment at the Move type-system level (not runtime checks); pre-flight slippage guard prevents wasted gas; Walrus Seal encrypts strategy to prevent copy-trading |
 | **Move 2026** | Uses `public struct`, `mut`, hot-potato receipt pattern, and modern Move syntax throughout |
 
 ---

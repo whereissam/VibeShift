@@ -4,7 +4,7 @@
 
 The first **Self-Sustaining Yield Engine** on Sui. An autonomous liquidity orchestrator that shifts stablecoin assets between **Stablelayer** and **Cetus** based on agentic market analysis — with flash-loan capital efficiency, encrypted strategy proofs, and gas autonomy. Built with Move 2026, powered by an AI agent.
 
-Traditional DeFi vaults move capital in two transactions: withdraw from protocol A, then deposit into protocol B. Funds sit idle between steps ("yield drag"). VibeShift eliminates this with a **hot-potato flash loan** pattern: borrow, deploy, and repay in a single atomic Programmable Transaction Block. If repayment fails, the entire PTB reverts — making vault drain mathematically impossible at the Move VM level.
+Traditional DeFi vaults move capital in two transactions: withdraw from protocol A, then deposit into protocol B. Funds sit idle between steps ("yield drag"). VibeShift eliminates this with a **hot-potato flash loan** pattern: borrow, deploy, and repay in a single atomic Programmable Transaction Block. If repayment fails, the entire PTB reverts — making unauthorized fund extraction impossible at the Move type-system level.
 
 ## How It Works
 
@@ -31,12 +31,30 @@ User deposits USDC
 
 ### Advanced Features
 
-4. **Flash-Shift** - Hot-potato flash loans built directly into the vault. The agent borrows funds via `request_flash_shift`, deploys them into DeFi protocols, and repays via `complete_flash_shift` — all in a single atomic PTB. The `FlashReceipt` struct has **no abilities** (no `store`, `drop`, or `copy`), so the Move VM enforces that every borrow is repaid within the same transaction. If repayment falls short, the entire PTB reverts. Zero yield drag, zero risk.
-5. **DeepBook V3 Liquidity Injection** - When a yield spike requires more capital than the vault holds, Flash-Shift stacks with a DeepBook V3 flash loan — multiple flash loans from different protocols in one atomic PTB.
+4. **Flash-Shift** - Hot-potato flash loans built directly into the vault. The agent borrows funds via `request_flash_shift`, deploys them into DeFi protocols, and repays via `complete_flash_shift` — all in a single atomic PTB. The `FlashReceipt` struct has **no abilities** (no `store`, `drop`, or `copy`), so the Move VM enforces that every borrow is repaid within the same transaction. If repayment falls short, the entire PTB reverts. Zero yield drag, zero extraction risk.
+5. **DeepBook V3 Liquidity Injection** - When a yield spike requires more capital than the vault holds, Flash-Shift stacks with a DeepBook V3 flash loan to rebalance *without selling the underlying vault assets*. The vault captures yield on amplified capital while both flash receipts enforce full repayment within the same atomic PTB.
 6. **Verifiable Intent (Strategy Black-Box)** - Walrus Seal encrypts strategy reasoning to prevent copy-trading. Only Blob ID + Zk-Proof of Intent go on-chain. Financial alpha stays private while proofs remain 100% auditable.
-7. **The Eternal Agent** - Self-sustaining gas: the agent auto-swaps yield (never principal) for SUI via Cetus Aggregator, creating a perpetual motion vault that runs forever without human intervention.
+7. **Strategy Explorer** - A live UI that decrypts and visualizes the agent's reasoning from Walrus. When the Sentinel shifts funds because "Cetus APY spiked due to volume," you see the yield chart, the confidence score, and the pool state snapshot — making the AI tangible, not mystical.
+8. **The Eternal Agent** - Self-sustaining gas: the agent auto-swaps yield (never principal) for SUI via Cetus Aggregator, creating a perpetual motion vault that runs forever without human intervention.
 
 ### Flash-Shift: How It Works
+
+The core safety primitive is the `FlashReceipt` hot-potato struct. **Zero abilities** means the Move VM will reject any transaction that doesn't consume it:
+
+```move
+/// Flash loan receipt — no abilities (hot-potato).
+/// Must be consumed by `complete_flash_shift` in the same transaction.
+public struct FlashReceipt {
+    vault_id: ID,
+    amount: u64,
+}
+// No `store` → can't persist to storage
+// No `drop`  → can't be silently discarded
+// No `copy`  → can't be duplicated
+// The ONLY way out is complete_flash_shift(), which asserts repayment >= amount.
+```
+
+This isn't a runtime check — it's a **type-system guarantee**. The Move bytecode verifier rejects any PTB that constructs a `FlashReceipt` without consuming it. No amount of creative transaction crafting can bypass this.
 
 ```
 +--- Single PTB (atomic) ----------------------------------+
@@ -56,7 +74,7 @@ User deposits USDC
       Capital was never idle. Zero yield drag.
 ```
 
-**When vault capital isn't enough** — stack a DeepBook V3 flash loan:
+**When vault capital isn't enough** — stack a DeepBook V3 flash loan. This is a key insight: instead of selling vault assets to fund a rebalance, we borrow from DeepBook's order-book liquidity. The vault never touches its principal — it captures yield on amplified capital and repays from the proceeds:
 
 ```
 +--- Compound PTB (atomic) --------------------------------+
@@ -69,9 +87,12 @@ User deposits USDC
 +-----------------------------------------------------------+
       Both flash receipts consumed. Both protocols whole.
       Vault captured yield on $15k instead of $10k.
+      No underlying assets were sold to fund the rebalance.
 ```
 
-The `FlashReceipt` is a **hot-potato** struct with no Move abilities — it cannot be stored, copied, or dropped. The only way to consume it is by calling `complete_flash_shift` with sufficient repayment. This is enforced by the Move VM itself, not by runtime checks. Vault drain is **mathematically impossible**.
+### Slippage Guard
+
+Flash-Shift reverts atomically if repayment falls short, but a failed PTB still wastes gas. The agent implements a pre-flight slippage check: before submitting the PTB, it simulates the Cetus swap via `preswap()` and aborts if expected slippage exceeds the configured tolerance (default 1%). This avoids burning gas on transactions that would revert anyway.
 
 ### Autonomous Gas Refuel
 
@@ -176,11 +197,13 @@ sui client publish --gas-budget 100000000
 │   │   ├── gas-autonomy.ts         # Agent gas balance check + skim yield
 │   │   ├── refuel.ts               # Cetus Aggregator USDC→SUI refuel PTB
 │   │   ├── rebalance.ts            # Rebalance orchestrator
+│   │   ├── walrus-seal.ts          # Walrus Seal encryption/decryption for proofs
 │   │   ├── constants.ts            # Deployed contract IDs + config
 │   │   └── utils.ts                # Utility functions
 │   ├── routes/
 │   │   ├── __root.tsx              # Root layout (wallet + balance)
 │   │   ├── index.tsx               # Dashboard (TVL, yields, deposit/withdraw)
+│   │   ├── strategy-explorer.tsx   # Strategy Explorer (decrypted proof viewer)
 │   │   └── about.tsx               # Architecture + track qualification
 │   ├── main.tsx                    # App entry (SuiClientProvider + WalletProvider)
 │   └── index.css
@@ -191,7 +214,7 @@ sui client publish --gas-budget 100000000
 | Track | How |
 |-------|-----|
 | **Stablelayer** | Manages $USD-Sui stablecoins via Stablelayer SDK (mint, burn, claim); uses Stablelayer as the "Base Stability" layer for yield maximization |
-| **Safety** | `AgentCap`-gated fund movement; `FlashReceipt` hot-potato pattern makes vault drain *mathematically impossible* at the Move VM level; Walrus Seal encrypts strategy to prevent copy-trading |
+| **Safety** | `AgentCap`-gated fund movement; `FlashReceipt` hot-potato pattern enforces atomic repayment at the Move type-system level (not runtime checks); Walrus Seal encrypts strategy to prevent copy-trading; pre-flight slippage guard prevents wasted gas |
 | **Move 2026** | Uses `public struct`, `mut`, modern Move syntax, and hot-potato receipt pattern throughout |
 
 ## AI Disclosure
