@@ -288,31 +288,31 @@ A "Zk-Proof of Intent" stored on Walrus is invisible to judges. The Strategy Exp
 
 #### Frontend (`src/routes/strategy-explorer.tsx`)
 
-- [ ] Create Strategy Explorer route with TanStack Router
-- [ ] Implement proof timeline — chronological list of all rebalance events with expandable detail
-- [ ] For each proof, show:
-  - [ ] Direction (to_cetus / to_stablelayer) with visual indicator
-  - [ ] Yield chart — Cetus APY vs Stablelayer APY at time of decision, with the differential highlighted
-  - [ ] Pool state snapshot — liquidity depth, volume, fee rate from the agent's perspective
-  - [ ] Confidence score and shift percentage
-  - [ ] Reasoning text (decrypted from Walrus Seal via `downloadAndDecryptProof()`)
-  - [ ] Link to on-chain transaction on Sui Explorer
-- [ ] Add "Yield Drag Saved" cumulative counter — sum of `(shift_amount * time_saved * yield_rate)` across all Flash-Shift events
-- [ ] Add proof decryption toggle — show encrypted blob vs decrypted plaintext side-by-side
+- [x] Create Strategy Explorer route with TanStack Router
+- [x] Implement proof timeline — chronological list of all rebalance events with expandable detail
+- [x] For each proof, show:
+  - [x] Direction (to_cetus / to_stablelayer) with visual indicator
+  - [x] Yield chart — Cetus APY vs Stablelayer APY at time of decision, with the differential highlighted
+  - [x] Pool state snapshot — liquidity depth, volume, fee rate from the agent's perspective
+  - [x] Confidence score and shift percentage
+  - [x] Reasoning text (decrypted from Walrus Seal via `downloadAndDecryptProof()`)
+  - [x] Link to on-chain transaction on Sui Explorer
+- [x] Add "Yield Drag Saved" cumulative counter — sum of `(shift_amount * time_saved * yield_rate)` across all Flash-Shift events
+- [x] Add proof decryption toggle — show encrypted blob vs decrypted plaintext side-by-side
 
 #### SDK Integration
 
-- [ ] Wire `downloadAndDecryptProof()` from `walrus-seal.ts` into the explorer component
-- [ ] Add `getRebalanceEvents()` helper — query on-chain `RebalanceEvent` and `FlashShiftEvent` emissions
-- [ ] Cache decrypted proofs in localStorage to avoid repeated Walrus fetches
+- [x] Wire `downloadAndDecryptProof()` from `walrus-seal.ts` into the explorer component
+- [x] Add `getRebalanceEvents()` helper — query on-chain `RebalanceEvent` and `FlashShiftEvent` emissions
+- [x] Cache decrypted proofs in localStorage to avoid repeated Walrus fetches (15min TTL)
 
 ### 5. Peer Dependency Verification
 
 React 19 and Tailwind v4 are bleeding edge. Ensure SDK compatibility before the demo.
 
-- [ ] Run `bun install` and verify zero peer dependency warnings for `stable-layer-sdk`, `@mysten/dapp-kit`, `@cetusprotocol/cetus-sui-clmm-sdk`
-- [ ] If conflicts exist, pin React to 18.x or add `overrides` in `package.json`
-- [ ] Test full build (`bun run build`) with no warnings
+- [x] Run `bun install` and verify zero peer dependency warnings for `stable-layer-sdk`, `@mysten/dapp-kit`, `@cetusprotocol/cetus-sui-clmm-sdk` — 507 installs, 0 warnings
+- [x] No conflicts — React 19 and Tailwind v4 compatible with all SDKs
+- [x] Test full build (`bun run build`) with no errors — builds in 2.64s
 
 ---
 

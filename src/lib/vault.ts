@@ -221,3 +221,98 @@ export async function getVaultState(
     lpSupply: String(fields.lp_supply ?? "0"),
   };
 }
+
+// ===== Event types =====
+
+export interface RebalanceEventData {
+  vaultId: string;
+  agent: string;
+  amount: string;
+  direction: string;
+  totalAssetsAfter: string;
+  txDigest: string;
+  timestampMs: string;
+}
+
+export interface FlashShiftEventData {
+  vaultId: string;
+  agent: string;
+  amount: string;
+  repaid: string;
+  protocol: string;
+  totalAssetsAfter: string;
+  txDigest: string;
+  timestampMs: string;
+}
+
+export interface RebalanceEvents {
+  rebalances: RebalanceEventData[];
+  flashShifts: FlashShiftEventData[];
+}
+
+function decodeBytes(raw: unknown): string {
+  if (Array.isArray(raw)) {
+    return new TextDecoder().decode(new Uint8Array(raw));
+  }
+  return String(raw ?? "");
+}
+
+/**
+ * Query on-chain RebalanceEvent and FlashShiftEvent emissions for a vault.
+ */
+export async function getRebalanceEvents(
+  vaultId?: string,
+  limit = 50,
+): Promise<RebalanceEvents> {
+  const client = getSuiClient();
+
+  const [rebalanceRes, flashShiftRes] = await Promise.all([
+    client.queryEvents({
+      query: {
+        MoveEventType: `${VIBESHIFT_PACKAGE_ID}::${MODULE}::RebalanceEvent`,
+      },
+      limit,
+      order: "descending",
+    }),
+    client.queryEvents({
+      query: {
+        MoveEventType: `${VIBESHIFT_PACKAGE_ID}::${MODULE}::FlashShiftEvent`,
+      },
+      limit,
+      order: "descending",
+    }),
+  ]);
+
+  const rebalances: RebalanceEventData[] = rebalanceRes.data
+    .map((ev) => {
+      const f = ev.parsedJson as Record<string, unknown>;
+      return {
+        vaultId: String(f.vault_id ?? ""),
+        agent: String(f.agent ?? ""),
+        amount: String(f.amount ?? "0"),
+        direction: decodeBytes(f.direction),
+        totalAssetsAfter: String(f.total_assets_after ?? "0"),
+        txDigest: ev.id.txDigest,
+        timestampMs: ev.timestampMs ?? "0",
+      };
+    })
+    .filter((e) => !vaultId || e.vaultId === vaultId);
+
+  const flashShifts: FlashShiftEventData[] = flashShiftRes.data
+    .map((ev) => {
+      const f = ev.parsedJson as Record<string, unknown>;
+      return {
+        vaultId: String(f.vault_id ?? ""),
+        agent: String(f.agent ?? ""),
+        amount: String(f.amount ?? "0"),
+        repaid: String(f.repaid ?? "0"),
+        protocol: decodeBytes(f.protocol),
+        totalAssetsAfter: String(f.total_assets_after ?? "0"),
+        txDigest: ev.id.txDigest,
+        timestampMs: ev.timestampMs ?? "0",
+      };
+    })
+    .filter((e) => !vaultId || e.vaultId === vaultId);
+
+  return { rebalances, flashShifts };
+}

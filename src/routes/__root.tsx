@@ -58,6 +58,12 @@ function RootLayout() {
                   Dashboard
                 </Link>
                 <Link
+                  to="/strategy-explorer"
+                  className="text-muted-foreground hover:text-foreground [&.active]:text-primary [&.active]:font-medium transition-colors"
+                >
+                  Strategy
+                </Link>
+                <Link
                   to="/about"
                   className="text-muted-foreground hover:text-foreground [&.active]:text-primary [&.active]:font-medium transition-colors"
                 >
