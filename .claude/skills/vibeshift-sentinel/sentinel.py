@@ -192,7 +192,7 @@ def preswap_check(pool: PoolStats, amount: int) -> Optional[int]:
     This is a pre-flight check — if it fails, the agent skips the rebalance
     cycle entirely, saving gas that would otherwise be wasted on a reverting PTB.
     """
-    if amount <= 0:
+    if amount < 0:
         return None
 
     # Approximate output from pool state:
