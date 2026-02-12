@@ -235,7 +235,13 @@ function flashShiftEventToProof(ev: FlashShiftEventData): ProofEntry {
     timestamp: new Date(Number(ev.timestampMs)).toISOString(),
     txDigest: ev.txDigest,
     flashShift: true,
-    yieldDragSavedBps: Number(ev.repaid) > Number(ev.amount) ? 100 : 0,
+    yieldDragSavedBps:
+      Number(ev.amount) > 0
+        ? Math.round(
+            ((Number(ev.repaid) - Number(ev.amount)) / Number(ev.amount)) *
+              10_000,
+          )
+        : 0,
   };
 }
 
@@ -312,7 +318,7 @@ function PoolSnapshotCard({ snapshot }: { snapshot: PoolSnapshot }) {
           Liquidity
         </div>
         <div className="text-sm font-medium text-foreground">
-          ${formatAmount(snapshot.liquidity, 6)}
+          ${formatAmount(snapshot.liquidity, 9)}
         </div>
       </div>
       <div className="space-y-1">
@@ -321,7 +327,7 @@ function PoolSnapshotCard({ snapshot }: { snapshot: PoolSnapshot }) {
           24h Volume
         </div>
         <div className="text-sm font-medium text-foreground">
-          ${formatAmount(snapshot.volume24h, 6)}
+          ${formatAmount(snapshot.volume24h, 9)}
         </div>
       </div>
       <div className="space-y-1">
@@ -556,7 +562,7 @@ function ProofDetailCard({ proof }: { proof: ProofEntry }) {
                 Shift Amount
               </div>
               <div className="text-sm font-medium text-foreground">
-                ${formatAmount(proof.shiftAmount, 6)}
+                ${formatAmount(proof.shiftAmount, 9)}
               </div>
             </div>
             <div className="bg-muted/50 rounded-md p-2.5">
@@ -766,7 +772,7 @@ function StrategyExplorer() {
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="text-2xl font-bold text-foreground">
-              ${formatAmount(String(totalShiftVolume), 6)}
+              ${formatAmount(String(totalShiftVolume), 9)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Total capital rebalanced
