@@ -237,9 +237,12 @@ function flashShiftEventToProof(ev: FlashShiftEventData): ProofEntry {
     flashShift: true,
     yieldDragSavedBps:
       Number(ev.amount) > 0
-        ? Math.round(
-            ((Number(ev.repaid) - Number(ev.amount)) / Number(ev.amount)) *
-              10_000,
+        ? Math.max(
+            0,
+            Math.round(
+              ((Number(ev.repaid) - Number(ev.amount)) / Number(ev.amount)) *
+                10_000,
+            ),
           )
         : 0,
   };
