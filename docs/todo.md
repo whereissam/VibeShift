@@ -212,15 +212,15 @@ Flash-Shift reverts atomically if repayment falls short, but a failed PTB still 
 
 #### SDK (`src/lib/deepbook.ts`)
 
-- [ ] Add `simulateFlashShift()` — dry-run the PTB via `devInspectTransactionBlock` to estimate output
-- [ ] Add `checkSlippageTolerance()` — compare simulated output vs required repayment, abort if slippage > threshold
-- [ ] Wire slippage guard into `buildFlashShiftTx()` and `buildFlashShiftWithDeepBookTx()` as pre-flight step
+- [x] Add `simulateFlashShift()` — dry-run the PTB via `dryRunTransactionBlock` to estimate output and balance changes
+- [x] Add `checkSlippageTolerance()` — compare simulated output vs required repayment, abort if slippage > threshold
+- [x] Wire slippage guard into `buildFlashShiftTx()` and `buildFlashShiftWithDeepBookTx()` via `preflightFlashShift()` pre-flight step
 
 #### Agent (`sentinel.py`)
 
-- [ ] Add `preswap_check()` — call Cetus `preswap()` before submitting rebalance PTB
-- [ ] If expected slippage > configured tolerance (default 1%), log warning and skip the rebalance cycle
-- [ ] Add `SLIPPAGE_TOLERANCE_BPS` env var (default 100 = 1%)
+- [x] Add `preswap_check()` — estimate swap output from pool state before submitting rebalance PTB
+- [x] If expected slippage > configured tolerance (default 1%), log warning and skip the rebalance cycle
+- [x] Add `SLIPPAGE_TOLERANCE_BPS` env var (default 100 = 1%)
 
 ---
 

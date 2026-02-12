@@ -6,10 +6,133 @@ import {
   DEEPBOOK_PACKAGE_ID,
   DEEPBOOK_SUI_USDC_POOL,
   SUI_RPC_URL,
+  DEFAULT_SLIPPAGE_BPS,
 } from "./constants";
 import { getVaultState } from "./vault";
 
 const MODULE = "vault";
+
+// ===== Slippage Guard =====
+
+export interface SimulationResult {
+  success: boolean;
+  outputAmount: bigint;
+  gasUsed: bigint;
+  error?: string;
+}
+
+export interface SlippageCheck {
+  withinTolerance: boolean;
+  expectedOutput: bigint;
+  requiredRepayment: bigint;
+  slippageBps: number;
+  toleranceBps: number;
+}
+
+/**
+ * Dry-run a flash-shift PTB via dryRunTransactionBlock to estimate output
+ * without submitting the transaction. Returns the simulation result including
+ * balance changes which show the net flow to/from the vault.
+ *
+ * Requires a built (serialized) transaction — call `tx.build()` first.
+ */
+export async function simulateFlashShift(
+  txBytes: Uint8Array,
+): Promise<SimulationResult> {
+  const client = new SuiClient({ url: SUI_RPC_URL });
+
+  try {
+    const result = await client.dryRunTransactionBlock({
+      transactionBlock: txBytes,
+    });
+
+    if (result.effects.status.status === "failure") {
+      return {
+        success: false,
+        outputAmount: 0n,
+        gasUsed: BigInt(result.effects.gasUsed.computationCost),
+        error: result.effects.status.error ?? "Simulation failed",
+      };
+    }
+
+    // Extract the net positive balance change to shared objects (the vault).
+    // balanceChanges shows all balance mutations from the dry-run.
+    let outputAmount = 0n;
+    for (const change of result.balanceChanges) {
+      if (change.owner && typeof change.owner === "object" && "Shared" in change.owner) {
+        const amt = BigInt(change.amount);
+        if (amt > 0n) outputAmount += amt;
+      }
+    }
+
+    return {
+      success: true,
+      outputAmount,
+      gasUsed: BigInt(result.effects.gasUsed.computationCost),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      outputAmount: 0n,
+      gasUsed: 0n,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Compare simulated output against the required repayment amount.
+ * Returns whether slippage is within the configured tolerance.
+ */
+export function checkSlippageTolerance(
+  simulatedOutput: bigint,
+  requiredRepayment: bigint,
+  toleranceBps: number = DEFAULT_SLIPPAGE_BPS,
+): SlippageCheck {
+  if (requiredRepayment === 0n) {
+    return {
+      withinTolerance: true,
+      expectedOutput: simulatedOutput,
+      requiredRepayment,
+      slippageBps: 0,
+      toleranceBps,
+    };
+  }
+
+  // Slippage = how much output falls short of repayment, as a fraction of repayment
+  const shortfall = requiredRepayment > simulatedOutput
+    ? requiredRepayment - simulatedOutput
+    : 0n;
+  const slippageBps = Number((shortfall * 10000n) / requiredRepayment);
+
+  return {
+    withinTolerance: slippageBps <= toleranceBps,
+    expectedOutput: simulatedOutput,
+    requiredRepayment,
+    slippageBps,
+    toleranceBps,
+  };
+}
+
+/**
+ * Pre-flight check: simulate a flash-shift PTB and abort if slippage exceeds tolerance.
+ * Returns the SlippageCheck result, or throws if the simulation itself fails.
+ *
+ * @param txBytes — Serialized transaction bytes from `tx.build({ client })`
+ * @param requiredRepayment — The amount that must be repaid for the PTB to succeed
+ * @param toleranceBps — Max acceptable slippage in basis points (default: DEFAULT_SLIPPAGE_BPS)
+ */
+export async function preflightFlashShift(
+  txBytes: Uint8Array,
+  requiredRepayment: bigint,
+  toleranceBps: number = DEFAULT_SLIPPAGE_BPS,
+): Promise<SlippageCheck> {
+  const sim = await simulateFlashShift(txBytes);
+  if (!sim.success) {
+    throw new Error(`Flash-shift simulation failed: ${sim.error}`);
+  }
+  return checkSlippageTolerance(sim.outputAmount, requiredRepayment, toleranceBps);
+}
 
 /**
  * Build an atomic flash-shift PTB: request → (caller can insert ops) → complete.
@@ -17,6 +140,9 @@ const MODULE = "vault";
  * Returns a Transaction with the request and complete steps. The caller can
  * extend the transaction with additional moveCall steps between the two for
  * protocol operations (Cetus swaps, Stablelayer redemptions, DeepBook ops).
+ *
+ * **Slippage guard:** Before submitting, run `preflightFlashShift(tx, sender, amount)`
+ * to simulate the PTB and abort if slippage exceeds tolerance.
  */
 export function buildFlashShiftTx(
   vaultId: string,
@@ -77,6 +203,10 @@ export async function getFlashShiftCapacity(
  *   2. deepbook::flash_loan() → DeepBook coin + DeepBook FlashReceipt
  *   3. Merge coins → deploy combined capital to target protocol
  *   4. Split repayments → repay DeepBook, then complete_flash_shift
+ *
+ * **Slippage guard:** Before submitting, run
+ * `preflightFlashShift(tx, sender, vaultAmount + deepbookAmount)`
+ * to simulate the compound PTB and abort if slippage exceeds tolerance.
  */
 export function buildFlashShiftWithDeepBookTx(
   vaultId: string,

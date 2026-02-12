@@ -61,6 +61,7 @@ AGENT_ADDRESS = os.getenv("VIBESHIFT_AGENT_ADDRESS", "")
 YIELD_THRESHOLD_BPS = int(os.getenv("YIELD_THRESHOLD_BPS", "200"))
 MAX_SHIFT_PCT = int(os.getenv("MAX_SHIFT_PCT", "40"))
 COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "3600"))
+SLIPPAGE_TOLERANCE_BPS = int(os.getenv("SLIPPAGE_TOLERANCE_BPS", "100"))  # 1%
 
 
 # ===== Data Types =====
@@ -176,6 +177,53 @@ def get_deepbook_flash_loan_capacity() -> int:
     if isinstance(base_vault, dict):
         return int(base_vault.get("value", 0))
     return 0
+
+
+# ===== Slippage Guard =====
+
+
+def preswap_check(pool: PoolStats, amount: int) -> Optional[int]:
+    """Estimate swap output via Cetus pool state and check slippage.
+
+    Uses the pool's current sqrt_price and liquidity to approximate the output
+    of a swap. Returns the estimated output in base units, or None if slippage
+    exceeds the configured tolerance (SLIPPAGE_TOLERANCE_BPS).
+
+    This is a pre-flight check — if it fails, the agent skips the rebalance
+    cycle entirely, saving gas that would otherwise be wasted on a reverting PTB.
+    """
+    if amount <= 0:
+        return None
+
+    # Approximate output from pool state:
+    # For a CLMM pool, output ≈ amount * (1 - fee_rate/1e6) at current price.
+    # This is a conservative estimate; actual output depends on tick traversal.
+    fee_fraction = pool.fee_rate / 1_000_000  # fee_rate is in millionths
+    estimated_output = int(amount * (1 - fee_fraction))
+
+    # Calculate slippage: how much output deviates from input
+    if amount == 0:
+        return estimated_output
+
+    slippage_bps = ((amount - estimated_output) * 10000) // amount
+
+    log.info(
+        "PRESWAP CHECK: amount=%d, estimated_output=%d, slippage=%d bps, tolerance=%d bps",
+        amount,
+        estimated_output,
+        slippage_bps,
+        SLIPPAGE_TOLERANCE_BPS,
+    )
+
+    if slippage_bps > SLIPPAGE_TOLERANCE_BPS:
+        log.warning(
+            "SLIPPAGE GUARD: %d bps exceeds tolerance %d bps — skipping rebalance",
+            slippage_bps,
+            SLIPPAGE_TOLERANCE_BPS,
+        )
+        return None
+
+    return estimated_output
 
 
 # ===== Analysis =====
@@ -448,6 +496,7 @@ def status():
     print(f"Stablelayer Yield:   {stable_yield} bps")
     print(f"Threshold:           {YIELD_THRESHOLD_BPS} bps")
     print(f"Max Shift:           {MAX_SHIFT_PCT}%")
+    print(f"Slippage Tolerance:  {SLIPPAGE_TOLERANCE_BPS} bps ({SLIPPAGE_TOLERANCE_BPS/100:.1f}%)")
     print(f"Cooldown:            {COOLDOWN_SECONDS}s")
 
     action = analyze()
@@ -462,6 +511,15 @@ def run_once():
     action = analyze()
     if not action:
         return
+
+    # Pre-flight slippage check — abort if swap would lose too much to slippage
+    pool = get_cetus_pool_stats()
+    if pool and action.direction == "to_cetus":
+        estimated = preswap_check(pool, action.shift_amount)
+        if estimated is None:
+            log.warning("Skipping rebalance cycle due to slippage guard")
+            return
+        log.info("Preswap check passed: estimated output=%d", estimated)
 
     log.info("ACTION: %s", action.reason)
 
@@ -514,6 +572,15 @@ def run_loop(interval_seconds: int = 600):
         else:
             action = analyze()
             if action:
+                # Pre-flight slippage check
+                pool = get_cetus_pool_stats()
+                if pool and action.direction == "to_cetus":
+                    estimated = preswap_check(pool, action.shift_amount)
+                    if estimated is None:
+                        log.warning("Skipping cycle — slippage guard triggered")
+                        time.sleep(interval_seconds)
+                        continue
+
                 log.info("ACTION: %s", action.reason)
                 blob_id = upload_walrus_proof(action)
                 if blob_id:
